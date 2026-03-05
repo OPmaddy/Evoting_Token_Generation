@@ -27,8 +27,8 @@ STATE_DONE = 6
 
 # Thresholds
 ALIGN_TOLERANCE = 0.4
-ALIGN_DURATION = 2.0       # Hold alignment for 1 second
-RECORDING_FRAMES = 90      # ~1.5 seconds at 30 fps
+ALIGN_DURATION = 2.0       # Hold alignment for 2 second
+RECORDING_FRAMES = 90      # ~3 seconds at 30 fps
 
 # ================= Models =================
 class FaceSystem:
@@ -407,7 +407,7 @@ def run_face_verification(
     controller = UIController(sys, stored_embedding, dump_dir, entry_number)
     
     processing_thread = None
-    cv2.namedWindow("Face Verification Module", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("Face Verification Module", cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_NORMAL)
     
     try:
         while controller.running:

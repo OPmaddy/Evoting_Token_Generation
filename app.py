@@ -109,16 +109,32 @@ def main():
             )
             
             if not success and attempt < max_attempts:
-                # Optional: Show a brief retry message
-                status_screen(
-                    app,
-                    "VERIFICATION RETRY",
-                    f"Attempt {attempt} failed. Retrying ({attempt}/{max_attempts})...\nPlease align your face and blink when prompted.",
-                    fg="orange",
-                    delay=2000,
-                    on_done=None # Blocking is fine here, or just update
-                )
-                app.root.update()
+                # Ask user if they want to retry or exit
+                app.clear()
+                import tkinter as tk
+                from ui.styles import BG_COLOR, FG_COLOR, ACCENT_COLOR, ERROR_COLOR, FONT_LARGE, FONT_MED
+                
+                frame = tk.Frame(app.container, bg=BG_COLOR)
+                frame.place(relx=0.5, rely=0.5, anchor="center")
+                
+                tk.Label(frame, text="VERIFICATION FAILED", fg=ERROR_COLOR, bg=BG_COLOR, font=FONT_LARGE).pack(pady=20)
+                tk.Label(frame, text=f"Attempt {attempt}/{max_attempts} failed.\nWould you like to retry or exit?", fg=FG_COLOR, bg=BG_COLOR, font=FONT_MED, justify="center").pack(pady=10)
+                
+                btn_frame = tk.Frame(frame, bg=BG_COLOR)
+                btn_frame.pack(pady=30)
+                
+                choice = {"action": None}
+                def on_retry(): choice["action"] = "retry"
+                def on_exit(): choice["action"] = "exit"
+                
+                tk.Button(btn_frame, text="RETRY", command=on_retry, font=FONT_MED, bg=ACCENT_COLOR, fg="white", padx=20, pady=10, cursor="hand2").pack(side="left", padx=20)
+                tk.Button(btn_frame, text="EXIT", command=on_exit, font=FONT_MED, bg=FG_COLOR, fg="white", padx=20, pady=10, cursor="hand2").pack(side="left", padx=20)
+                
+                while choice["action"] is None and not app.exit_requested:
+                    app.root.update()
+                    
+                if choice["action"] == "exit" or app.exit_requested:
+                    break
                 
         cam.stop()
         if hasattr(cam, 'close'):

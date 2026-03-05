@@ -130,8 +130,12 @@ def main():
                 tk.Button(btn_frame, text="RETRY", command=on_retry, font=FONT_MED, bg=ACCENT_COLOR, fg="white", padx=20, pady=10, cursor="hand2").pack(side="left", padx=20)
                 tk.Button(btn_frame, text="EXIT", command=on_exit, font=FONT_MED, bg=FG_COLOR, fg="white", padx=20, pady=10, cursor="hand2").pack(side="left", padx=20)
                 
+                import time
+                start_time = time.time()
                 while choice["action"] is None and not app.exit_requested:
                     app.root.update()
+                    if time.time() - start_time >= 1.0:
+                        choice["action"] = "retry"
                     
                 if choice["action"] == "exit" or app.exit_requested:
                     break
@@ -226,8 +230,12 @@ def main():
                 tk.Button(btn_frame, text="RETRY", command=on_retry, font=FONT_MED, bg=ACCENT_COLOR, fg="white", padx=20, pady=10, cursor="hand2").pack(side="left", padx=20)
                 tk.Button(btn_frame, text="EXIT", command=on_exit, font=FONT_MED, bg=FG_COLOR, fg="white", padx=20, pady=10, cursor="hand2").pack(side="left", padx=20)
                 
+                import time
+                start_time = time.time()
                 while choice["action"] is None and not app.exit_requested:
                     app.root.update()
+                    if time.time() - start_time >= 1.0:
+                        choice["action"] = "retry"
                     
                 if choice["action"] == "exit" or app.exit_requested:
                     break

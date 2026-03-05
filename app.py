@@ -22,7 +22,7 @@ from logic.token import (
 )
 
 # Set to True when testing without actual RFID hardware (e.g., Windows dev)
-MOCK_RFID = True
+MOCK_RFID = False
 if not MOCK_RFID:
     from hardware.rfid_writer import RFIDTokenWriter
 
@@ -175,26 +175,62 @@ def main():
         def rfid_cb(msg):
             rfid_status_screen(app, msg)
 
-        if MOCK_RFID:
-            import time
-            rfid_cb("Status: Mocking RFID detection...")
-            app.root.update()
-            time.sleep(0.5)
-            
-            # Write to file
-            try:
-                with open("mock_rfid.txt", "w") as f:
-                    f.write(encrypted)
-                rfid_cb("Status: Mocking RFID Write... Success")
-            except Exception as e:
-                rfid_cb(f"Status: Mocking RFID Write... Failed: {e}")
+        max_rfid_attempts = 5
+        rfid_attempt = 0
+        write_success = False
+
+        while rfid_attempt < max_rfid_attempts and not write_success:
+            rfid_attempt += 1
+
+            if MOCK_RFID:
+                import time
+                rfid_cb("Status: Mocking RFID detection...")
+                app.root.update()
+                time.sleep(0.5)
                 
-            app.root.update()
-            time.sleep(1.0)
-            write_success = True
-        else:
-            writer = RFIDTokenWriter(start_block=4)
-            write_success = writer.write_token(encrypted, status_cb=rfid_cb)
+                # Write to file
+                try:
+                    with open("mock_rfid.txt", "w") as f:
+                        f.write(encrypted)
+                    rfid_cb("Status: Mocking RFID Write... Success")
+                    write_success = True
+                except Exception as e:
+                    rfid_cb(f"Status: Mocking RFID Write... Failed: {e}")
+                    write_success = False
+                    
+                app.root.update()
+                time.sleep(1.0)
+            else:
+                writer = RFIDTokenWriter(start_block=4)
+                write_success = writer.write_token(encrypted, status_cb=rfid_cb)
+
+            if not write_success and rfid_attempt < max_rfid_attempts:
+                # Ask user if they want to retry or exit
+                app.clear()
+                import tkinter as tk
+                from ui.styles import BG_COLOR, FG_COLOR, ACCENT_COLOR, ERROR_COLOR, FONT_LARGE, FONT_MED
+                
+                frame = tk.Frame(app.container, bg=BG_COLOR)
+                frame.place(relx=0.5, rely=0.5, anchor="center")
+                
+                tk.Label(frame, text="WRITE FAILED", fg=ERROR_COLOR, bg=BG_COLOR, font=FONT_LARGE).pack(pady=20)
+                tk.Label(frame, text=f"Attempt {rfid_attempt}/{max_rfid_attempts} failed.\nWould you like to retry or exit?", fg=FG_COLOR, bg=BG_COLOR, font=FONT_MED, justify="center").pack(pady=10)
+                
+                btn_frame = tk.Frame(frame, bg=BG_COLOR)
+                btn_frame.pack(pady=30)
+                
+                choice = {"action": None}
+                def on_retry(): choice["action"] = "retry"
+                def on_exit(): choice["action"] = "exit"
+                
+                tk.Button(btn_frame, text="RETRY", command=on_retry, font=FONT_MED, bg=ACCENT_COLOR, fg="white", padx=20, pady=10, cursor="hand2").pack(side="left", padx=20)
+                tk.Button(btn_frame, text="EXIT", command=on_exit, font=FONT_MED, bg=FG_COLOR, fg="white", padx=20, pady=10, cursor="hand2").pack(side="left", padx=20)
+                
+                while choice["action"] is None and not app.exit_requested:
+                    app.root.update()
+                    
+                if choice["action"] == "exit" or app.exit_requested:
+                    break
 
         if not write_success:
             status_screen(app, "CARD ERROR",

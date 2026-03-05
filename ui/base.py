@@ -6,8 +6,18 @@ class FullscreenApp:
         self.root = tk.Tk()
         self.root.title("E-Voting Terminal")
 
-        # Fullscreen for Raspberry Pi
+        # Force an initial size and update before setting fullscreen
+        self.root.geometry("800x600")
+        self.root.update_idletasks()
+        
+        # Fullscreen for Raspberry Pi, fallback to zoomed for Windows
         self.root.attributes("-fullscreen", True)
+        self.root.update_idletasks()
+        self.root.update()
+        try:
+            self.root.state('zoomed')
+        except tk.TclError:
+            pass
 
         self.exit_requested = False
 

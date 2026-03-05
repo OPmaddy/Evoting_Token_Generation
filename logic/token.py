@@ -21,7 +21,7 @@ def build_token_payload(
     """
     return {
         "token_id": str(uuid.uuid4()),
-        "entry_number": entry_number,
+        "voter_id": entry_number,
         "eid_vector": eid_vector,
         "booth": booth,
         "issued_at": datetime.now().isoformat()

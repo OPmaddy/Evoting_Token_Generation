@@ -1,0 +1,10 @@
+opencv-python
+picamera2
+insightface
+onnxruntime
+torch
+cryptography
+pandas
+pillow
+adafruit-circuitpython-pn532
+dlib

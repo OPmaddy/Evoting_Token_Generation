@@ -1,0 +1,4 @@
+embeddings/
+bmd_keys.json
+__pycache__/
+*.pyc

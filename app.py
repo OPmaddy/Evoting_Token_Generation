@@ -140,6 +140,21 @@ def main():
             if voter_db.has_token(voter):
                 already_generated_screen(app, voter, on_done=flow)
                 return
+
+            # Check if another device is already processing this voter
+            if voter_db.is_in_progress(voter):
+                status_screen(app, "IN PROGRESS",
+                              "This voter is currently being processed by another device.\nPlease wait or try a different voter.",
+                              fg="orange", on_done=flow)
+                return
+
+            # Request permission from the central server to generate token
+            req_ok, req_msg = voter_db.request_token(entry)
+            if not req_ok:
+                status_screen(app, "REQUEST DENIED",
+                              f"Cannot generate token for this voter:\n{req_msg}",
+                              fg="red", on_done=flow)
+                return
         else:
             # Provide mock voter object for face checking flow
             if voter is None:
@@ -226,6 +241,9 @@ def main():
             if IS_DEBUG:
                 label_benchmark(entry, attempt, False)
                 return
+
+            # Release the lock on the central server so another device can try
+            voter_db.cancel_token(entry)
 
             status_screen(
                 app,
@@ -327,17 +345,28 @@ def main():
                     break
 
         if not write_success:
+            # Release the lock on the central server
+            voter_db.cancel_token(entry)
+
             status_screen(app, "CARD ERROR",
                           "Failed to write voting token to the Smart Card.\nPlease retry or replace the card.", 
                           fg="red", on_done=flow)
             return
 
+        # Save full audit record to LOCAL SQLite (images, timestamps)
         voter_db.stage_token(
             entry_number=entry,
             token_id=payload["token_id"],
             issued_at=payload["issued_at"],
             img1=images[0] if len(images) > 0 else None,
             img2=images[1] if len(images) > 1 else None,
+            booth=booth
+        )
+
+        # Notify central server that generation succeeded (sync)
+        voter_db.confirm_token(
+            entry_number=entry,
+            token_id=payload["token_id"],
             booth=booth
         )
 

@@ -2,3 +2,6 @@ embeddings/
 bmd_keys.json
 __pycache__/
 *.pyc
+voters.db
+benchmark_results.csv
+

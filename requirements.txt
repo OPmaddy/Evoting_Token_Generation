@@ -8,3 +8,4 @@ pandas
 pillow
 adafruit-circuitpython-pn532
 dlib
+requests

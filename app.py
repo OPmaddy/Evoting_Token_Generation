@@ -123,7 +123,7 @@ def main():
             app.root.destroy()
             return
 
-        entry = entry_number_screen(app)
+        entry = entry_number_screen(app, mock_rfid=MOCK_RFID)
         if not entry:
             app.root.after(10, flow)
             return

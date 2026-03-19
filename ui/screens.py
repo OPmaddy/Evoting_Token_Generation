@@ -29,7 +29,7 @@ def _styled_button(parent, text, command, bg=ACCENT_COLOR, fg="white"):
 
 # ---------------- ENTRY SCREEN ---------------- #
 
-def entry_number_screen(app):
+def entry_number_screen(app, mock_rfid=True):
     app.clear()
     result = {"value": None}
 
@@ -120,10 +120,35 @@ def entry_number_screen(app):
     # Bind Enter key
     app.root.bind('<Return>', lambda e: submit())
 
+    # --- RFID Background Polling ---
+    import threading
+    import time
+    stop_event = threading.Event()
+    
+    def rfid_poll():
+        try:
+            from hardware.rfid_reader import RFIDEntryReader
+            reader = RFIDEntryReader()
+            while not stop_event.is_set():
+                val = reader.read_entry_number()
+                if val:
+                    # Update the UI state from the main thread safely
+                    app.root.after(0, lambda v=val: result.update({"value": v}))
+                    break
+                time.sleep(0.3)
+            reader.close()
+        except Exception as e:
+            print(f"RFID Reader disabled/error: {e}")
+
+    if not mock_rfid:
+        threading.Thread(target=rfid_poll, daemon=True).start()
+
     # Wait until value entered or exit
     while result["value"] is None and not app.exit_requested:
         app.root.update()
+        time.sleep(0.05)
     
+    stop_event.set()
     app.root.unbind('<Return>')
     return result["value"]
 

@@ -1,6 +1,6 @@
 import os
+import sys
 import json
-import numpy as np
 
 from ui.base import FullscreenApp
 import argparse
@@ -16,32 +16,40 @@ from ui.screens import (
 )
 
 from logic.voter import VoterDB
-from logic.face import run_face_verification
 from logic.token import (
     assign_booth,
     build_token_payload,
     encrypt_payload
 )
 
-try:
-    from hardware.camera import Camera
-except ImportError:
-    print("Warning: Picamera2 not found. Using OpenCV Mock Camera instead.")
-    import cv2
-    class Camera:
-        def __init__(self):
-            self.cap = cv2.VideoCapture(0)
-        def start(self):
-            pass
-        def stop(self):
-            self.cap.release()
-        def close(self):
-            self.cap.release()
-        def capture_frame(self):
-            ret, frame = self.cap.read()
-            if ret:
-                return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            return None
+# --- Early bypass-face detection (before importing heavy face libraries) ---
+_BYPASS_FACE_EARLY = '--bypass-face' in sys.argv
+
+if not _BYPASS_FACE_EARLY:
+    import numpy as np
+    from logic.face import run_face_verification
+
+    try:
+        from hardware.camera import Camera
+    except ImportError:
+        print("Warning: Picamera2 not found. Using OpenCV Mock Camera instead.")
+        import cv2
+        class Camera:
+            def __init__(self):
+                self.cap = cv2.VideoCapture(0)
+            def start(self):
+                pass
+            def stop(self):
+                self.cap.release()
+            def close(self):
+                self.cap.release()
+            def capture_frame(self):
+                ret, frame = self.cap.read()
+                if ret:
+                    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                return None
+else:
+    print("[bypass-face] Skipping face verification library imports.")
 
 # Set to True when testing without actual RFID hardware (e.g., Windows dev)
 MOCK_RFID = False

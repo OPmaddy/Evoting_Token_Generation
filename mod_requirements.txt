@@ -1,0 +1,5 @@
+cryptography
+pandas
+pillow
+adafruit-circuitpython-pn532
+requests

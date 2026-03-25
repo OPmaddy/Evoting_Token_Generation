@@ -55,9 +55,11 @@ os.makedirs(DUMP_DIR, exist_ok=True)
 def main():
     parser = argparse.ArgumentParser(description="EVoting Token Generation")
     parser.add_argument('--debug', action='store_true', help="Run in benchmarking mode (Face Verification only)")
+    parser.add_argument('--bypass-face', action='store_true', help="Skip face verification and jump straight to token generation")
     args = parser.parse_args()
     
     IS_DEBUG = args.debug
+    BYPASS_FACE = args.bypass_face
 
     if IS_DEBUG:
         print("Running in DEBUG (Benchmarking) Mode. Bypassing Electoral Roll and Token Saving.")
@@ -161,6 +163,18 @@ def main():
                voter = {"Entry_Number": entry, "EID_Vector": "E1"} 
 
         # ---- FACE VERIFICATION ----
+        if BYPASS_FACE:
+            print("Bypassing face verification...")
+            status_screen(
+                app,
+                "VERIFICATION BYPASSED",
+                "Face verification bypassed via command line flag.\nProceeding to token generation...",
+                fg="green",
+                delay=1500,
+                on_done=lambda: finalize(entry, voter, [])
+            )
+            return
+
         emb_path = os.path.join(EMBEDDINGS_DIR, f"{entry}.npy")
         if not os.path.exists(emb_path):
             # Fallback for demo purposes

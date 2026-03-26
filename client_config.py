@@ -6,7 +6,7 @@ import os
 
 # ─── Server Connection ────────────────────────────────────────────────────────
 # Base URL of the central coordination server
-SERVER_URL = os.environ.get("SERVER_URL", "https://10.64.23.6:5000")
+SERVER_URL = os.environ.get("SERVER_URL", "https://10.94.196.6:5000")
 
 # ─── Device Identity ──────────────────────────────────────────────────────────
 # Unique numeric ID for this token generation device (e.g. "1", "2", "3")

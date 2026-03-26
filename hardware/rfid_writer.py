@@ -50,7 +50,9 @@ class RFIDTokenWriter:
             return False
 
         if status_cb:
-            status_cb(f"Card detected\nWriting {len(chunks)} blocks")
+            status_cb("Card detected\nWriting token...")
+
+        print(f"[RFID] Writing {len(chunks)} blocks starting at block {self.start_block}")
 
         block_no = self.start_block
 
@@ -58,11 +60,8 @@ class RFIDTokenWriter:
             while self._is_trailer_block(block_no):
                 block_no += 1
 
-            if status_cb:
-                status_cb(
-                    f"Writing block {block_no} "
-                    f"({i + 1}/{len(chunks)})"
-                )
+            # Log block-level detail instead of updating UI
+            print(f"[RFID] Writing block {block_no} ({i + 1}/{len(chunks)})")
 
             auth = self.pn532.mifare_classic_authenticate_block(
                 uid,
@@ -72,8 +71,9 @@ class RFIDTokenWriter:
             )
 
             if not auth:
+                print(f"[RFID] Authentication failed at block {block_no}")
                 if status_cb:
-                    status_cb(f"Authentication failed at block {block_no}")
+                    status_cb("Authentication failed\nTry another card")
                 return False
 
             result = self.pn532.mifare_classic_write_block(
@@ -82,13 +82,15 @@ class RFIDTokenWriter:
             )
 
             if result not in (None, True):
+                print(f"[RFID] Write failed at block {block_no}")
                 if status_cb:
-                    status_cb(f"Write failed at block {block_no}")
+                    status_cb("Write failed\nKeep card steady")
                 return False
 
             block_no += 1
             time.sleep(0.05)  # short settle delay
 
+        print(f"[RFID] Write complete — {len(chunks)} blocks written successfully")
         if status_cb:
             status_cb("RFID write complete\nRemove card")
 

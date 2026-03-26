@@ -31,6 +31,8 @@ class FullscreenApp:
         """Remove all widgets from screen"""
         for w in self.container.winfo_children():
             w.destroy()
+        # Reset cached screen references so screens rebuild on next use
+        self._rfid_status_label = None
 
     def _exit(self, event=None):
         self.exit_requested = True

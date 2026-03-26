@@ -1,6 +1,13 @@
 Entry_Number,Name,Vector of which Elections he is elidgible for
-2022EE11737,Madhav Gupta,E1;E3;E6
-2022TT12151,Aman Gupta,E2;E3;E5
-2022CS10001,Subodh Sir,E1;E2;E4
-2022CS10002,Raginee,E3;E4;E5
-2022CS10003,Umang,E1;E5
+1,Madhav Gupta,E1;E2
+2,Aman Gupta,E1;E2
+3,Voter1,E1;E2
+4,Raaginee,E1;E2
+5,Umang,E1;E2
+6,Voter2,E1;E2
+7,Voter3,E1;E2
+8,Voter4,E1;E2
+9,Voter5,E1;E2
+10,Voter6,E1;E2
+11,Voter7,E1;E2
+12,Voter8,E1;E2

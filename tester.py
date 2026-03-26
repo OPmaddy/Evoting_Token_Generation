@@ -74,23 +74,17 @@ def main():
 
     def rfid_sim(entry):
         # 4. RFID Generation
-        # Simulate the callbacks from RFIDTokenWriter
+        # Simulate the callbacks from RFIDTokenWriter (simplified — no per-block updates)
         messages = [
             "Place RFID card on reader",
-            "Card detected\nWriting 4 blocks",
-            "Writing block 4 (1/4)",
-            "Writing block 5 (2/4)",
-            "Writing block 6 (3/4)",
-            "Writing block 7 (4/4)",
+            "Card detected\nWriting token...",
             "RFID write complete\nRemove card"
         ]
         
         delay_accum = 0
         for i, msg in enumerate(messages):
-            # Schedule each status update
-            # We need to capture the current msg in lambda, so use default arg m=msg
             app.root.after(delay_accum, lambda m=msg: rfid_status_screen(app, m))
-            delay_accum += 800 # 800ms between updates
+            delay_accum += 1500  # 1.5s between key status updates
             
         # Move to booth screen after all updates + small pause
         app.root.after(delay_accum + 500, lambda: booth_sim(entry))

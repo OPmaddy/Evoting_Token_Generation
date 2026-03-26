@@ -275,25 +275,32 @@ def verification_progress_screen(app, message):
 # ---------------- RFID STATUS ---------------- #
 
 def rfid_status_screen(app, message):
-    app.clear()
-    frame = _center_frame(app)
+    # On first call (or after a clear), build the full screen layout.
+    # On subsequent calls, only update the status label text to avoid flickering.
+    if not hasattr(app, '_rfid_status_label') or app._rfid_status_label is None:
+        app.clear()
+        frame = _center_frame(app)
 
-    # Title
-    tk.Label(frame, text="TOKEN GENERATION",
-             fg=ACCENT_COLOR, bg=BG_COLOR, font=FONT_LARGE).pack(pady=(20, 10))
+        # Title
+        tk.Label(frame, text="TOKEN GENERATION",
+                 fg=ACCENT_COLOR, bg=BG_COLOR, font=FONT_LARGE).pack(pady=(20, 10))
 
-    # Static Instruction
-    tk.Label(frame, text="Please place your Smart Card on the sensor pad.",
-             fg=FG_COLOR, bg=BG_COLOR, font=FONT_MED).pack(pady=5)
-    
-    tk.Label(frame, text="Hold the card steady until writing is complete.",
-             fg=FG_SECONDARY, bg=BG_COLOR, font=FONT_SMALL).pack(pady=(0, 20))
+        # Static Instruction
+        tk.Label(frame, text="Please place your Smart Card on the sensor pad.",
+                 fg=FG_COLOR, bg=BG_COLOR, font=FONT_MED).pack(pady=5)
 
-    # Dynamic Status / Progress
-    # Use a monospace font for technical status like "Writing block..."
-    tk.Label(frame, text=message,
-             fg=ACCENT_COLOR, bg=BG_COLOR, font=("Consolas", 14),
-             justify="center").pack(pady=10)
+        tk.Label(frame, text="Hold the card steady until writing is complete.",
+                 fg=FG_SECONDARY, bg=BG_COLOR, font=FONT_SMALL).pack(pady=(0, 20))
+
+        # Dynamic Status Label (kept as a reference for updates)
+        status_label = tk.Label(frame, text=message,
+                                fg=ACCENT_COLOR, bg=BG_COLOR, font=("Consolas", 14),
+                                justify="center")
+        status_label.pack(pady=10)
+        app._rfid_status_label = status_label
+    else:
+        # Just update the text — no screen rebuild
+        app._rfid_status_label.config(text=message)
 
     app.root.update()
 

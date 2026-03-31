@@ -12,7 +12,8 @@ from ui.screens import (
     already_generated_screen,
     verification_progress_screen,
     rfid_status_screen,
-    booth_confirmation_screen
+    booth_confirmation_screen,
+    voter_confirmation_screen
 )
 
 from logic.voter import VoterDB
@@ -24,6 +25,7 @@ from logic.token import (
 
 # --- Early bypass-face detection (before importing heavy face libraries) ---
 _BYPASS_FACE_EARLY = '--bypass-face' in sys.argv
+_MOCK_RFID_EARLY = '--mock-rfid' in sys.argv
 
 if not _BYPASS_FACE_EARLY:
     import numpy as np
@@ -52,7 +54,7 @@ else:
     print("[bypass-face] Skipping face verification library imports.")
 
 # Set to True when testing without actual RFID hardware (e.g., Windows dev)
-MOCK_RFID = False
+MOCK_RFID = _MOCK_RFID_EARLY
 if not MOCK_RFID:
     from hardware.rfid_writer import RFIDTokenWriter
 
@@ -64,6 +66,7 @@ def main():
     parser = argparse.ArgumentParser(description="EVoting Token Generation")
     parser.add_argument('--debug', action='store_true', help="Run in benchmarking mode (Face Verification only)")
     parser.add_argument('--bypass-face', action='store_true', help="Skip face verification and jump straight to token generation")
+    parser.add_argument('--mock-rfid', action='store_true', help="Bypass actual RFID hardware and write to mock_rfid.txt")
     args = parser.parse_args()
     
     IS_DEBUG = args.debug
@@ -140,6 +143,12 @@ def main():
 
         voter = voter_db.get_voter(entry)
         
+        # New mandatory confirmation step
+        if voter is not None:
+            if not voter_confirmation_screen(app, voter):
+                app.root.after(10, flow)
+                return
+
         if not IS_DEBUG:
             if voter is None:
                 status_screen(app, "ENTRY NOT FOUND", 
@@ -184,9 +193,6 @@ def main():
             return
 
         emb_path = os.path.join(EMBEDDINGS_DIR, f"{entry}.npy")
-        if not os.path.exists(emb_path):
-            # Fallback for demo purposes
-            emb_path = os.path.join(EMBEDDINGS_DIR, "madhav.npy")
             
         if not os.path.exists(emb_path):
             status_screen(

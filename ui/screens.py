@@ -324,3 +324,62 @@ def booth_confirmation_screen(app, booth, on_done=None):
              fg=ACCENT_COLOR, bg=BG_COLOR, font=("Segoe UI", 60, "bold")).pack(pady=10)
 
     _styled_button(frame, "FINISH", on_done, bg=SUCCESS_COLOR).pack(pady=30)
+
+
+# ---------------- VOTER CONFIRMATION ---------------- #
+
+def voter_confirmation_screen(app, voter):
+    app.clear()
+    result = {"confirmed": None}
+    frame = _center_frame(app)
+
+    # Title
+    tk.Label(frame, text="CONFIRM VOTER IDENTITY",
+             fg=FG_SECONDARY, bg=BG_COLOR, font=("Segoe UI", 24, "bold")).pack(pady=(10, 20))
+
+    # Voter Name (Large & Clear)
+    name = voter.get('Name', 'Unknown Name')
+    tk.Label(frame, text=name.upper(),
+             fg=ACCENT_COLOR, bg=BG_COLOR, font=("Segoe UI", 36, "bold"),
+             wraplength=600, justify="center").pack(pady=10)
+
+    # Entry Number
+    entry = voter.get('Entry_Number', 'Unknown')
+    tk.Label(frame, text=f"Entry Number: {entry}",
+             fg=FG_COLOR, bg=BG_COLOR, font=("Segoe UI", 18)).pack(pady=5)
+
+    # Buttons Container
+    btn_frame = tk.Frame(frame, bg=BG_COLOR)
+    btn_frame.pack(pady=30)
+
+    def on_confirm():
+        result["confirmed"] = True
+
+    def on_cancel():
+        result["confirmed"] = False
+
+    # Confirm Button
+    tk.Button(
+        btn_frame, text="CONFIRM & PROCEED", font=("Segoe UI", 16, "bold"),
+        command=on_confirm,
+        bg=SUCCESS_COLOR, fg="white",
+        activebackground="#1b5e20", activeforeground="white",
+        relief="flat", padx=30, pady=15, cursor="hand2"
+    ).pack(side="left", padx=20)
+
+    # Cancel Button
+    tk.Button(
+        btn_frame, text="INCORRECT / CANCEL", font=("Segoe UI", 16, "bold"),
+        command=on_cancel,
+        bg=ERROR_COLOR, fg="white",
+        activebackground="#b71c1c", activeforeground="white",
+        relief="flat", padx=30, pady=15, cursor="hand2"
+    ).pack(side="left", padx=20)
+
+    # Wait loop
+    import time
+    while result["confirmed"] is None and not app.exit_requested:
+        app.root.update()
+        time.sleep(0.05)
+
+    return result["confirmed"]

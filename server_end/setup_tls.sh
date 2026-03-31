@@ -6,44 +6,48 @@ set -e
 
 # Default values
 SERVER_IP="192.168.1.100"
+SERVER_NAME="evoting-server"
 NUM_DEVICES=5
-CERT_DIR="certs"
+BASE_OUTPUT_DIR="all_certs"
 
 # Allow overriding via command line
 if [ "$#" -ge 1 ]; then
     SERVER_IP=$1
 fi
 if [ "$#" -ge 2 ]; then
-    NUM_DEVICES=$2
+    SERVER_NAME=$2
+fi
+if [ "$#" -ge 3 ]; then
+    NUM_DEVICES=$3
 fi
 
 echo "=========================================="
 echo " EVoting TLS Certificate Generator script "
 echo "=========================================="
-echo "Server IP/Hostname: $SERVER_IP"
+echo "Server IP:       $SERVER_IP"
+echo "Server name:     $SERVER_NAME"
 echo "Number of Devices:  $NUM_DEVICES"
-echo "Output Directory:   ./$CERT_DIR"
+echo "Output Directory:   ./$BASE_OUTPUT_DIR"
 echo "=========================================="
 
-mkdir -p "$CERT_DIR"
-cd "$CERT_DIR"
+mkdir -p "$BASE_OUTPUT_DIR"
+# Work in a temporary directory for generation to avoid clutter
+TEMP_DIR=$(mktemp -d)
+cp -r . "$TEMP_DIR" # Copy scripts if needed (though not needed for openssl)
+cd "$TEMP_DIR"
 
 # --- 1. Generate CA ---
 echo "=> Step 1: Generating Certificate Authority (CA)..."
-if [ ! -f "ca.key" ]; then
-    openssl genrsa -out ca.key 4096
-    openssl req -new -x509 -days 3650 -key ca.key -out ca.crt \
-        -subj "/C=IN/ST=Delhi/O=EVoting/CN=EVoting-CA"
-    echo "   [OK] CA generated"
-else
-    echo "   [Skip] ca.key already exists, reusing existing CA"
-fi
+openssl genrsa -out ca.key 4096
+openssl req -new -x509 -days 3650 -key ca.key -out ca.crt \
+    -subj "/C=IN/ST=Delhi/O=EVoting/CN=EVoting-CA"
+echo "   [OK] CA generated"
 
 # --- 2. Generate Server Certificate ---
 echo "=> Step 2: Generating Server Certificate..."
 openssl genrsa -out server.key 2048
 openssl req -new -key server.key -out server.csr \
-    -subj "/C=IN/ST=Delhi/O=EVoting/CN=evoting-server"
+    -subj "/C=IN/ST=Delhi/O=EVoting/CN=$SERVER_NAME"
 
 cat > server_ext.cnf << EOF
 authorityKeyIdentifier=keyid,issuer
@@ -54,7 +58,7 @@ subjectAltName = @alt_names
 
 [alt_names]
 IP.1 = $SERVER_IP
-DNS.1 = evoting-server
+DNS.1 = $SERVER_NAME
 DNS.2 = localhost
 EOF
 
@@ -88,10 +92,30 @@ for i in $(seq 1 $NUM_DEVICES); do
     echo "   [OK] Generated $DEVICE_NAME"
 done
 
-# Cleanup temporary files
-rm server_ext.cnf client_ext.cnf ca.srl 2>/dev/null || true
+# --- 4. Organize Output ---
+echo "=> Step 4: Organizing output into $BASE_OUTPUT_DIR..."
+ORIGINAL_DIR=$OLDPWD # Mktemp CD'd us, get back the path to the project root
+
+# Server Certs Folder
+SERVER_DEST="$ORIGINAL_DIR/$BASE_OUTPUT_DIR/server_certs/certs"
+mkdir -p "$SERVER_DEST"
+cp ca.crt server.crt server.key "$SERVER_DEST/"
+
+# Device Certs Folders
+for i in $(seq 1 $NUM_DEVICES); do
+    DEVICE_DEST="$ORIGINAL_DIR/$BASE_OUTPUT_DIR/device_${i}/certs"
+    mkdir -p "$DEVICE_DEST"
+    cp ca.crt "device_${i}.crt" "device_${i}.key" "$DEVICE_DEST/"
+    echo "${i}" > "$DEVICE_DEST/device_id.txt"
+done
+
+# Cleanup temporary folder
+cd "$ORIGINAL_DIR"
+rm -rf "$TEMP_DIR"
 
 echo "=========================================="
-echo "Done! All certificates generated in ./$CERT_DIR"
-echo "Note: The server requires ca.crt, server.crt, and server.key"
-echo "Each device 'N' requires ca.crt, device_N.crt, and device_N.key"
+echo "Done! All certificates organized in ./$BASE_OUTPUT_DIR"
+echo "Structure:"
+echo "  $BASE_OUTPUT_DIR/server_certs/certs/   (For the Token Server)"
+echo "  $BASE_OUTPUT_DIR/device_N/certs/      (Total $NUM_DEVICES devices)"
+echo "=========================================="

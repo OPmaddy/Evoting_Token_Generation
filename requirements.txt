@@ -1,11 +1,21 @@
+# Core / Math
+numpy
+scipy
+pandas
+requests
+
+# GUI / Images
+pillow
 opencv-python
-picamera2
+
+# AI / Face Verification
 insightface
 onnxruntime
 torch
-cryptography
-pandas
-pillow
-adafruit-circuitpython-pn532
 dlib
-requests
+
+# Hardware / Communication
+adafruit-circuitpython-pn532
+adafruit-blinka
+cryptography
+picamera2

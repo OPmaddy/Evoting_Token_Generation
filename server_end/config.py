@@ -25,7 +25,7 @@ TLS_CA_CERT     = os.environ.get("TLS_CA_CERT",     os.path.join(TLS_CERT_DIR, "
 # If a device requests a token but never confirms/cancels, the request is
 # considered stale after this many seconds and automatically reverted to
 # "not_generated" on the next query.
-STALE_REQUEST_TIMEOUT_SECONDS = int(os.environ.get("STALE_REQUEST_TIMEOUT", "300"))  # 5 minutes
+STALE_REQUEST_TIMEOUT_SECONDS = int(os.environ.get("STALE_REQUEST_TIMEOUT", "60"))  # 1 minute
 
 # ─── Electoral Roll CSV ──────────────────────────────────────────────────────
 ELECTORAL_ROLL_CSV = os.environ.get(

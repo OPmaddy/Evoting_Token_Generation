@@ -81,10 +81,10 @@ certs/
 ### 5. Start the Server
 
 ```bash
-# Production (with mTLS)
-python app.py
+# Production (with mTLS and threaded connection handling via Gunicorn)
+gunicorn -c gunicorn_config.py app:application
 
-# Development (no TLS)
+# Development (no TLS, built-in Flask server)
 python app.py --no-tls
 ```
 
@@ -159,7 +159,7 @@ All settings are in `config.py` and can be overridden via environment variables:
 | `SERVER_HOST` | `0.0.0.0` | Bind host |
 | `SERVER_PORT` | `5000` | Bind port |
 | `TLS_CERT_DIR` | `./certs` | Directory for TLS certs |
-| `STALE_REQUEST_TIMEOUT` | `300` | Seconds before a stale request auto-reverts |
+| `STALE_REQUEST_TIMEOUT` | `60` | Seconds before a stale request auto-reverts |
 
 ## File Structure
 

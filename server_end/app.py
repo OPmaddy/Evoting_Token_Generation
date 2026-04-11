@@ -24,9 +24,12 @@ from config import (
 
 def create_app() -> Flask:
     """Flask application factory."""
-    application = Flask(__name__)
-    application.register_blueprint(api)
-    return application
+    app_instance = Flask(__name__)
+    app_instance.register_blueprint(api)
+    return app_instance
+
+# Expose the application globally for WSGI servers (e.g. gunicorn)
+application = create_app()
 
 
 def build_tls_context() -> ssl.SSLContext:
@@ -81,7 +84,8 @@ def main():
     )
     args = parser.parse_args()
 
-    application = create_app()
+    # Access the global application object
+    global application
 
     if args.no_tls:
         print("=" * 60)

@@ -96,7 +96,7 @@ class VoterDB:
                 (
                     str(r["Entry_Number"]).strip(),
                     r["Name"],
-                    r["Vector of which Elections he is elidgible for"]
+                    r["Vector"]
                 )
             )
         conn.commit()
@@ -203,30 +203,24 @@ class VoterDB:
     #  PUBLIC API (used by app.py)
     # ══════════════════════════════════════════════════════════════════
 
-    def get_voter(self, entry_number: str):
+    def get_voter_local(self, entry_number: str):
         """
-        Look up a voter. Uses the LOCAL database for voter info (name, EID
-        vector, image paths) and the CENTRAL SERVER for the authoritative
-        token generation status.
-
-        Returns a dict with the standard keys used by app.py, plus:
-          _server_status  — raw status from the central server
-          _server_device   — device_id from the central server
+        Fetch voter ONLY from the local database (used for instant UI).
         """
-        # 1. Get local data (name, EID, images, etc.)
-        local = self._get_voter_local(entry_number)
-        if local is None:
-            return None
+        return self._get_voter_local(entry_number)
 
-        # 2. Get remote status (authoritative sync state)
-        remote = self._get_voter_remote(entry_number)
+    def sync_voter_remote(self, local: dict) -> dict:
+        """
+        Check central server for token generation status.
+        Adds _server_status and _server_device keys to the dictionary.
+        """
+        remote = self._get_voter_remote(local["Entry_Number"])
 
         if remote is not None:
             server_status = remote.get("status", "not_generated")
 
             # If the central server says a token was generated, reflect that
             # in the local dict even if the local DB hasn't been updated yet
-            # (e.g. another device generated it).
             if server_status.startswith("generated_at_device_"):
                 local["TokenID"] = remote.get("token_id") or local.get("TokenID")
 
@@ -262,7 +256,7 @@ class VoterDB:
             return requesting_device != self.device_id
         return False
 
-    def request_token(self, entry_number: str) -> tuple:
+    def request_token(self, entry_number: str, regenerate: bool = False) -> tuple:
         """
         Request permission from the central server to generate a token.
 
@@ -270,8 +264,9 @@ class VoterDB:
             (success: bool, message: str)
         """
         try:
+            endpoint = "/regenerate" if regenerate else "/request"
             resp = self.session.post(
-                self._api_url(f"/voter/{entry_number}/request"),
+                self._api_url(f"/voter/{entry_number}{endpoint}"),
                 json={"device_id": self.device_id},
                 timeout=10,
             )
@@ -337,3 +332,30 @@ class VoterDB:
         except requests.RequestException as e:
             print(f"ERROR: cancel_token failed: {e}")
             return False
+
+    def rotate_files_and_reinitialize(self) -> tuple:
+        """Rotate voters.db and Electoral_Roll.csv to logs/ dir, fetch new Electoral_Roll.csv, and reinitialize db."""
+        import datetime
+        import shutil
+        
+        now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_dir = os.path.join(".", "logs", f"cycle_{now_str}")
+        os.makedirs(log_dir, exist_ok=True)
+        
+        if os.path.exists(self.db_path):
+            shutil.move(self.db_path, os.path.join(log_dir, "voters.db"))
+        
+        if os.path.exists(ELECTORAL_ROLL_PATH):
+            shutil.move(ELECTORAL_ROLL_PATH, os.path.join(log_dir, "Electoral_Roll.csv"))
+            
+        try:
+            resp = self.session.get(self._api_url("/electoral_roll"), timeout=30)
+            resp.raise_for_status()
+            with open(ELECTORAL_ROLL_PATH, "wb") as f:
+                f.write(resp.content)
+        except requests.RequestException as e:
+            return False, f"Failed to fetch new electoral roll: {e}"
+            
+        self._ensure_db()
+        return True, "Successfully reset for a new election cycle."
+

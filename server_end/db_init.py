@@ -46,7 +46,7 @@ def import_electoral_roll(csv_path: str, drop_existing: bool = False):
     for row in rows:
         entry_number = row.get("Entry_Number", "").strip()
         name = row.get("Name", "").strip()
-        eid_vector = row.get("Vector of which Elections he is elidgible for", "").strip()
+        eid_vector = row.get("Vector", "").strip()
 
         if not entry_number:
             continue

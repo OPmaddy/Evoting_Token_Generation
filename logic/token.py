@@ -7,8 +7,9 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import serialization
 
 # ------------------ BOOTH ------------------
-def assign_booth(entry_number: str, eid_vector: str, num_booths: int) -> int:
-    return abs(hash(entry_number + eid_vector)) % num_booths + 1
+def assign_booth(entry_number: str, eid_vector: str, allowed_bmds: list) -> int:
+    idx = abs(hash(entry_number + eid_vector)) % len(allowed_bmds)
+    return allowed_bmds[idx]
 
 # ------------------ TOKEN ------------------
 def build_token_payload(

@@ -183,6 +183,38 @@ class VoterCollection:
         )
         return self._serialize(doc)
 
+    def regenerate_token(self, entry_number: str, device_id: str) -> dict | None:
+        """
+        Force a voter into a requested state regardless of current status.
+        Logs the previous state to an append-only file.
+        """
+        existing = self.collection.find_one({"entry_number": {"$regex": f"^{entry_number}$", "$options": "i"}})
+        if existing:
+            # Audit log
+            # Use absolute path to the server_end directory so the log is created there
+            import os
+            log_path = os.path.join(os.path.dirname(__file__), "regeneration_audit.log")
+            log_line = f"[{datetime.now(timezone.utc).isoformat()}] REGENERATE TRIGGERED FOR {entry_number} | Old Status: {existing.get('status')} | Old Device: {existing.get('device_id')} | Old Token ID: {existing.get('token_id')} | Old Requested At: {existing.get('requested_at')} | Old Generated At: {existing.get('generated_at')}\n"
+            with open(log_path, "a") as f:
+                f.write(log_line)
+
+        now = datetime.now(timezone.utc).isoformat()
+        doc = self.collection.find_one_and_update(
+            {
+                "entry_number": {"$regex": f"^{entry_number}$", "$options": "i"}
+            },
+            {
+                "$set": {
+                    "status": f"requested_by_device_{device_id}",
+                    "device_id": device_id,
+                    "requested_at": now,
+                    "is_regenerated": True
+                }
+            },
+            return_document=ReturnDocument.AFTER,
+        )
+        return self._serialize(doc)
+
     def get_all_voters(self) -> list[dict]:
         """Return all voter documents (admin)."""
         docs = list(self.collection.find())

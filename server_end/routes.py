@@ -11,7 +11,8 @@ POST  /api/voter/<entry_number>/cancel    Report failure / release lock
 GET   /api/voters                         Admin: list all voters
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file
+import os
 from models import VoterCollection
 
 api = Blueprint("api", __name__, url_prefix="/api")
@@ -139,6 +140,43 @@ def cancel_token(entry_number: str):
         "message": "Token request cancelled, voter status reset",
         "voter": result,
     }), 200
+
+# ─── Regenerate Token (Admin) ─────────────────────────────────────────────────
+
+@api.route("/voter/<entry_number>/regenerate", methods=["POST"])
+def regenerate_token(entry_number: str):
+    """
+    Force a token regeneration for a voter.
+    Body: { "device_id": "1" }
+    """
+    data = request.get_json(silent=True) or {}
+    device_id = data.get("device_id")
+
+    if not device_id:
+        return jsonify({"error": "device_id is required"}), 400
+
+    existing = voters.get_voter(entry_number)
+    if existing is None:
+        return jsonify({"error": "Voter not found"}), 404
+
+    result = voters.regenerate_token(entry_number, str(device_id))
+    if result is None:
+        return jsonify({"error": "Failed to regenerate token"}), 500
+
+    return jsonify({
+        "message": f"Token regeneration approved for device {device_id}",
+        "voter": result,
+    }), 200
+
+# ─── Fetch Electoral Roll ─────────────────────────────────────────────────────
+
+@api.route("/electoral_roll", methods=["GET"])
+def get_electoral_roll():
+    """Download the new Electoral_Roll.csv for the next cycle"""
+    file_path = os.path.join(os.path.dirname(__file__), "..", "Electoral_Roll.csv")
+    if not os.path.exists(file_path):
+        return jsonify({"error": "Electoral_Roll.csv not found on server"}), 404
+    return send_file(file_path, as_attachment=True, download_name="Electoral_Roll.csv")
 
 
 # ─── Admin: List All Voters ───────────────────────────────────────────────────

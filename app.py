@@ -13,7 +13,11 @@ from ui.screens import (
     verification_progress_screen,
     rfid_status_screen,
     booth_confirmation_screen,
-    voter_confirmation_screen
+    voter_confirmation_screen,
+    password_prompt_screen,
+    admin_dashboard_screen,
+    set_bmds_screen,
+    regenerate_prompt_screen
 )
 
 from logic.voter import VoterDB
@@ -76,6 +80,19 @@ def main():
         print("Running in DEBUG (Benchmarking) Mode. Bypassing Electoral Roll and Token Saving.")
 
     app = FullscreenApp()
+    
+    # Load Allowed BMDs from disk
+    allowed_bmds_path = "allowed_bmds.json"
+    if os.path.exists(allowed_bmds_path):
+        try:
+            with open(allowed_bmds_path, "r") as f:
+                app.allowed_bmds = json.load(f).get("allowed", [1])
+        except Exception as e:
+            print(f"Warning: Failed to load allowed_bmds.json: {e}")
+            app.allowed_bmds = [1]
+    else:
+        app.allowed_bmds = [1]
+        
     voter_db = VoterDB()
     
     # Load Booth Public Keys
@@ -131,23 +148,53 @@ def main():
         log_benchmark(entry, attempt, success, label=choice.get("label", "Unknown"))
         flow()
 
-    def flow():
+    def flow(regenerate_entry=None):
         if app.exit_requested:
             app.root.destroy()
             return
 
-        entry = entry_number_screen(app, mock_rfid=MOCK_RFID)
-        if not entry:
-            app.root.after(10, flow)
-            return
-
-        voter = voter_db.get_voter(entry)
-        
-        # New mandatory confirmation step
-        if voter is not None:
-            if not voter_confirmation_screen(app, voter):
+        if regenerate_entry:
+            entry = regenerate_entry
+        else:
+            entry = entry_number_screen(app, mock_rfid=MOCK_RFID)
+            if not entry:
                 app.root.after(10, flow)
                 return
+
+        if not regenerate_entry and entry.strip().upper() == "SAMURAI":
+            pwd = password_prompt_screen(app)
+            if pwd == "admin": 
+                while True:
+                    action = admin_dashboard_screen(app)
+                    if action == "EXIT":
+                        app.root.after(10, flow)
+                        return
+                    elif action == "RESET":
+                        status_screen(app, "RESETTING SYSTEM", "Rotating logs and fetching new electoral roll...", fg="orange")
+                        app.root.update()
+                        success, msg = voter_db.rotate_files_and_reinitialize()
+                        if success:
+                            status_screen(app, "RESET SUCCESSFUL", msg, fg="green", delay=2500, on_done=flow)
+                        else:
+                            status_screen(app, "RESET FAILED", msg, fg="red", delay=4000, on_done=flow)
+                        return
+                    elif action == "SET_BMDS":
+                        app.allowed_bmds = set_bmds_screen(app, num_booths, app.allowed_bmds)
+                        try:
+                            with open("allowed_bmds.json", "w") as f:
+                                json.dump({"allowed": app.allowed_bmds}, f)
+                        except Exception as e:
+                            print(f"Failed to save allowed BMDs: {e}")
+                    elif action == "REGENERATE":
+                        target_entry = regenerate_prompt_screen(app)
+                        if target_entry:
+                            app.root.after(10, lambda: flow(regenerate_entry=target_entry))
+                            return
+            else:
+                status_screen(app, "ACCESS DENIED", "Incorrect password", fg="red", delay=2000, on_done=flow)
+            return
+
+        voter = voter_db.get_voter_local(entry)
 
         if not IS_DEBUG:
             if voter is None:
@@ -155,8 +202,24 @@ def main():
                               "The Entry Number provided was not found in the Electoral Roll.\nPlease verify the number and try again.", 
                               fg="red", on_done=flow)
                 return
+        else:
+            # Provide mock voter object for face checking flow
+            if voter is None:
+               voter = {"Entry_Number": entry, "EID_Vector": "E1", "Name": "Mock Debug Voter"} 
 
-            if voter_db.has_token(voter):
+        # Immediate mandatory confirmation step using local info
+        if not voter_confirmation_screen(app, voter):
+            app.root.after(10, flow)
+            return
+
+        # Fetch remote status only after the user confirms their name
+        status_screen(app, "VERIFYING STATUS", "Connecting to central server...\nPlease wait.", fg="white")
+        app.root.update()
+        
+        voter = voter_db.sync_voter_remote(voter)
+
+        if not IS_DEBUG:
+            if not regenerate_entry and voter_db.has_token(voter):
                 already_generated_screen(app, voter, on_done=flow)
                 return
 
@@ -168,28 +231,17 @@ def main():
                 return
 
             # Request permission from the central server to generate token
-            req_ok, req_msg = voter_db.request_token(entry)
+            req_ok, req_msg = voter_db.request_token(entry, regenerate=bool(regenerate_entry))
             if not req_ok:
                 status_screen(app, "REQUEST DENIED",
                               f"Cannot generate token for this voter:\n{req_msg}",
                               fg="red", on_done=flow)
                 return
-        else:
-            # Provide mock voter object for face checking flow
-            if voter is None:
-               voter = {"Entry_Number": entry, "EID_Vector": "E1"} 
 
         # ---- FACE VERIFICATION ----
         if BYPASS_FACE:
             print("Bypassing face verification...")
-            status_screen(
-                app,
-                "VERIFICATION BYPASSED",
-                "Face verification bypassed via command line flag.\nProceeding to token generation...",
-                fg="green",
-                delay=1500,
-                on_done=lambda: finalize(entry, voter, [])
-            )
+            app.root.after(0, lambda: finalize(entry, voter, []))
             return
 
         emb_path = os.path.join(EMBEDDINGS_DIR, f"{entry}.npy")
@@ -295,7 +347,11 @@ def main():
             on_done=lambda: finalize(entry, voter, images)
         )
     def finalize(entry, voter, images):
-        booth = assign_booth(entry, voter["EID_Vector"], num_booths)
+        if not app.allowed_bmds:
+            status_screen(app, "SYSTEM ERROR", "No BMDs are currently allowed.\nAdmin must configure BMDs.", fg="red", on_done=flow)
+            return
+
+        booth = assign_booth(entry, voter["EID_Vector"], app.allowed_bmds)
         payload = build_token_payload(entry, voter["EID_Vector"], booth)
         
         booth_str = str(booth)
@@ -315,90 +371,101 @@ def main():
         rfid_attempt = 0
         write_success = False
 
-        while rfid_attempt < max_rfid_attempts and not write_success:
-            rfid_attempt += 1
-
-            if MOCK_RFID:
-                import time
-                rfid_cb("Status: Mocking RFID detection...")
-                app.root.update()
-                time.sleep(0.5)
-                
-                # Write to file
-                try:
-                    with open("mock_rfid.txt", "w") as f:
-                        f.write(encrypted)
-                    rfid_cb("Status: Mocking RFID Write... Success")
-                    write_success = True
-                except Exception as e:
-                    rfid_cb(f"Status: Mocking RFID Write... Failed: {e}")
-                    write_success = False
-                    
-                app.root.update()
-                time.sleep(1.0)
-            else:
+        writer = None
+        if not MOCK_RFID:
+            try:
                 writer = RFIDTokenWriter(start_block=4)
-                write_success = writer.write_token(encrypted, status_cb=rfid_cb)
+            except Exception as e:
+                status_screen(app, "HARDWARE ERROR", f"RFID initialization failed: {e}", fg="red", on_done=flow)
+                return
 
-            if not write_success and rfid_attempt < max_rfid_attempts:
-                # Ask user if they want to retry or exit
-                app.clear()
-                import tkinter as tk
-                from ui.styles import BG_COLOR, FG_COLOR, ACCENT_COLOR, ERROR_COLOR, FONT_LARGE, FONT_MED
-                
-                frame = tk.Frame(app.container, bg=BG_COLOR)
-                frame.place(relx=0.5, rely=0.5, anchor="center")
-                
-                tk.Label(frame, text="WRITE FAILED", fg=ERROR_COLOR, bg=BG_COLOR, font=FONT_LARGE).pack(pady=20)
-                tk.Label(frame, text=f"Attempt {rfid_attempt}/{max_rfid_attempts} failed.\nWould you like to retry or exit?", fg=FG_COLOR, bg=BG_COLOR, font=FONT_MED, justify="center").pack(pady=10)
-                
-                btn_frame = tk.Frame(frame, bg=BG_COLOR)
-                btn_frame.pack(pady=30)
-                
-                choice = {"action": None}
-                def on_retry(): choice["action"] = "retry"
-                def on_exit(): choice["action"] = "exit"
-                
-                tk.Button(btn_frame, text="RETRY", command=on_retry, font=FONT_MED, bg=ACCENT_COLOR, fg="white", padx=20, pady=10, cursor="hand2").pack(side="left", padx=20)
-                tk.Button(btn_frame, text="EXIT", command=on_exit, font=FONT_MED, bg=FG_COLOR, fg="white", padx=20, pady=10, cursor="hand2").pack(side="left", padx=20)
-                
-                import time
-                start_time = time.time()
-                while choice["action"] is None and not app.exit_requested:
+        try:
+            while rfid_attempt < max_rfid_attempts and not write_success:
+                rfid_attempt += 1
+
+                if MOCK_RFID:
+                    import time
+                    rfid_cb("Status: Mocking RFID detection...")
                     app.root.update()
-                    if time.time() - start_time >= 1.0:
-                        choice["action"] = "retry"
+                    time.sleep(0.5)
                     
-                if choice["action"] == "exit" or app.exit_requested:
-                    break
+                    # Write to file
+                    try:
+                        with open("mock_rfid.txt", "w") as f:
+                            f.write(encrypted)
+                        rfid_cb("Status: Mocking RFID Write... Success")
+                        write_success = True
+                    except Exception as e:
+                        rfid_cb(f"Status: Mocking RFID Write... Failed: {e}")
+                        write_success = False
+                        
+                    app.root.update()
+                    time.sleep(1.0)
+                else:
+                    write_success = writer.write_token(encrypted, status_cb=rfid_cb)
 
-        if not write_success:
-            # Release the lock on the central server
-            voter_db.cancel_token(entry)
+                if not write_success and rfid_attempt < max_rfid_attempts:
+                    # Ask user if they want to retry or exit
+                    app.clear()
+                    import tkinter as tk
+                    from ui.styles import BG_COLOR, FG_COLOR, ACCENT_COLOR, ERROR_COLOR, FONT_LARGE, FONT_MED
+                    
+                    frame = tk.Frame(app.container, bg=BG_COLOR)
+                    frame.place(relx=0.5, rely=0.5, anchor="center")
+                    
+                    tk.Label(frame, text="WRITE FAILED", fg=ERROR_COLOR, bg=BG_COLOR, font=FONT_LARGE).pack(pady=20)
+                    tk.Label(frame, text=f"Attempt {rfid_attempt}/{max_rfid_attempts} failed.\nWould you like to retry or exit?", fg=FG_COLOR, bg=BG_COLOR, font=FONT_MED, justify="center").pack(pady=10)
+                    
+                    btn_frame = tk.Frame(frame, bg=BG_COLOR)
+                    btn_frame.pack(pady=30)
+                    
+                    choice = {"action": None}
+                    def on_retry(): choice["action"] = "retry"
+                    def on_exit(): choice["action"] = "exit"
+                    
+                    tk.Button(btn_frame, text="RETRY", command=on_retry, font=FONT_MED, bg=ACCENT_COLOR, fg="white", padx=20, pady=10, cursor="hand2").pack(side="left", padx=20)
+                    tk.Button(btn_frame, text="EXIT", command=on_exit, font=FONT_MED, bg=FG_COLOR, fg="white", padx=20, pady=10, cursor="hand2").pack(side="left", padx=20)
+                    
+                    import time
+                    start_time = time.time()
+                    while choice["action"] is None and not app.exit_requested:
+                        app.root.update()
+                        if time.time() - start_time >= 1.0:
+                            choice["action"] = "retry"
+                        
+                    if choice["action"] == "exit" or app.exit_requested:
+                        break
 
-            status_screen(app, "CARD ERROR",
-                          "Failed to write voting token to the Smart Card.\nPlease retry or replace the card.", 
-                          fg="red", on_done=flow)
-            return
+            if not write_success:
+                # Release the lock on the central server
+                voter_db.cancel_token(entry)
 
-        # Save full audit record to LOCAL SQLite (images, timestamps)
-        voter_db.stage_token(
-            entry_number=entry,
-            token_id=payload["token_id"],
-            issued_at=payload["issued_at"],
-            img1=images[0] if len(images) > 0 else None,
-            img2=images[1] if len(images) > 1 else None,
-            booth=booth
-        )
+                status_screen(app, "CARD ERROR",
+                              "Failed to write voting token to the Smart Card.\nPlease retry or replace the card.", 
+                              fg="red", on_done=flow)
+                return
 
-        # Notify central server that generation succeeded (sync)
-        voter_db.confirm_token(
-            entry_number=entry,
-            token_id=payload["token_id"],
-            booth=booth
-        )
+            # Save full audit record to LOCAL SQLite (images, timestamps)
+            voter_db.stage_token(
+                entry_number=entry,
+                token_id=payload["token_id"],
+                issued_at=payload["issued_at"],
+                img1=images[0] if len(images) > 0 else None,
+                img2=images[1] if len(images) > 1 else None,
+                booth=booth
+            )
 
-        booth_confirmation_screen(app, booth, on_done=flow)
+            # Notify central server that generation succeeded (sync)
+            voter_db.confirm_token(
+                entry_number=entry,
+                token_id=payload["token_id"],
+                booth=booth
+            )
+
+            booth_confirmation_screen(app, booth, on_done=flow)
+        finally:
+            if writer is not None:
+                writer.close()
 
     app.root.after(100, flow)
     app.root.mainloop()

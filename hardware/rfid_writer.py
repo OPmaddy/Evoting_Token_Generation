@@ -15,9 +15,16 @@ class RFIDTokenWriter:
         self.start_block = start_block
         self.key = b'\xFF\xFF\xFF\xFF\xFF\xFF'
 
-        i2c = busio.I2C(board.SCL, board.SDA)
-        self.pn532 = PN532_I2C(i2c, debug=False)
+        self.i2c = busio.I2C(board.SCL, board.SDA)
+        self.pn532 = PN532_I2C(self.i2c, debug=False)
         self.pn532.SAM_configuration()
+
+    def close(self):
+        """Release the I2C bus resource to prevent 'I2C in use' crashes."""
+        try:
+            self.i2c.deinit()   
+        except Exception:
+            pass
 
     # ------------------ SAFETY ------------------
 

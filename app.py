@@ -127,18 +127,17 @@ def main():
     if os.path.exists("election_end_time.txt"):
         with open("election_end_time.txt", "r") as f:
             try:
-                app.election_end_time = datetime.datetime.fromisoformat(f.read().strip())
+                # Use .replace(tzinfo=None) to ensure naive datetime for simple comparison
+                app.election_end_time = datetime.datetime.fromisoformat(f.read().strip()).replace(tzinfo=None)
             except:
                 pass
                 
     # Sync Time (Admin requires Sudo process)
     try:
         print("Attempting to sync time via NTP from Google...")
-        subprocess.run(
-            ["sudo", "date", "-s", "$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)Z"],
-            shell=True,
-            timeout=5
-        )
+        # Use a single string for shell=True to allow bash-style $() substitution
+        cmd = 'sudo date -s "$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d\' \' -f5-8)Z"'
+        subprocess.run(cmd, shell=True, timeout=10)
     except Exception as e:
         print(f"Time sync failed: {e}")
 
@@ -243,7 +242,8 @@ def main():
                 with open("election_end_time.txt", "w") as f:
                     f.write(end_time_str)
                 try:
-                    app.election_end_time = datetime.datetime.fromisoformat(end_time_str)
+                    # Strip timezone info for naive comparison
+                    app.election_end_time = datetime.datetime.fromisoformat(end_time_str).replace(tzinfo=None)
                 except:
                     pass
             

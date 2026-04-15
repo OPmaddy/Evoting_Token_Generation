@@ -496,11 +496,17 @@ def admin_dashboard_screen(app):
     def on_reset(): result["action"] = "RESET"
     def on_set_bmds(): result["action"] = "SET_BMDS"
     def on_regenerate(): result["action"] = "REGENERATE"
+    def on_reinit(): result["action"] = "REINIT_ELECTIONS"
+    def on_fw_update(): result["action"] = "FIRMWARE_UPDATE"
+    def on_reset_pwd(): result["action"] = "RESET_PASSWORD"
     def on_exit(): result["action"] = "EXIT"
 
-    _styled_button(btn_frame, "END ELECTION & RESET", on_reset, bg=ERROR_COLOR).pack(pady=10, fill="x")
-    _styled_button(btn_frame, "SET ALLOWED BMDS", on_set_bmds, bg=ACCENT_COLOR).pack(pady=10, fill="x")
-    _styled_button(btn_frame, "REGENERATE TOKEN", on_regenerate, bg=WARNING_COLOR).pack(pady=10, fill="x")
+    _styled_button(btn_frame, "END ELECTION & RESET", on_reset, bg=ERROR_COLOR).pack(pady=5, fill="x")
+    _styled_button(btn_frame, "RE-INITIALIZE ELECTIONS", on_reinit, bg=ERROR_COLOR).pack(pady=5, fill="x")
+    _styled_button(btn_frame, "FIRMWARE UPDATE", on_fw_update, bg=WARNING_COLOR).pack(pady=5, fill="x")
+    _styled_button(btn_frame, "SET ALLOWED BMDS", on_set_bmds, bg=ACCENT_COLOR).pack(pady=5, fill="x")
+    _styled_button(btn_frame, "REGENERATE TOKEN", on_regenerate, bg=WARNING_COLOR).pack(pady=5, fill="x")
+    _styled_button(btn_frame, "RESET PASSWORD", on_reset_pwd, bg=FG_SECONDARY).pack(pady=5, fill="x")
     _styled_button(btn_frame, "EXIT ADMIN MENU", on_exit, bg=FG_SECONDARY).pack(pady=10, fill="x")
 
     import time
@@ -670,3 +676,154 @@ def regenerate_prompt_screen(app):
     
     app.root.unbind('<Return>')
     return result["value"] if not result["cancelled"] else None
+
+# ---------------- RESET PASSWORD ---------------- #
+
+def reset_password_screen(app):
+    app.clear()
+    result = {"old": None, "new": None, "cancelled": False}
+
+    frame = _center_frame(app)
+    
+    tk.Label(frame, text="RESET ADMIN PASSWORD",
+             fg=WARNING_COLOR, bg=BG_COLOR, font=("Segoe UI", 24, "bold")).pack(pady=(0, 5))
+
+    tk.Label(frame, text="Old Password:", fg=FG_COLOR, bg=BG_COLOR, font=("Segoe UI", 12)).pack()
+    entry_old = tk.Entry(frame, font=("Segoe UI", 16), justify="center", show="*", width=18)
+    entry_old.pack(pady=2, ipady=3)
+    entry_old.focus()
+
+    tk.Label(frame, text="New Password:", fg=FG_COLOR, bg=BG_COLOR, font=("Segoe UI", 12)).pack()
+    entry_new = tk.Entry(frame, font=("Segoe UI", 16), justify="center", show="*", width=18)
+    entry_new.pack(pady=2, ipady=3)
+
+    # Active Entry tracking for keyboard
+    active_entry = [entry_old]
+    def set_active(e): active_entry[0] = e.widget
+    entry_old.bind("<FocusIn>", set_active)
+    entry_new.bind("<FocusIn>", set_active)
+
+    def submit():
+        o = entry_old.get().strip()
+        n = entry_new.get().strip()
+        if o and n:
+            result["old"] = o
+            result["new"] = n
+
+    def cancel():
+        result["cancelled"] = True
+
+    kb_frame = tk.Frame(frame, bg=BG_COLOR)
+    kb_frame.pack(pady=5)
+
+    def on_key(char):
+        curr_entry = active_entry[0]
+        if char == "⌫":
+            current = curr_entry.get()
+            curr_entry.delete(len(current)-1, tk.END)
+        else:
+            curr_entry.insert(tk.END, char)
+
+    keys = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm", "-_@."]
+    KEY_BG = "#FFFFFF"
+    KEY_FG = "#333333"
+    
+    for row_chars in keys:
+        row_frame = tk.Frame(kb_frame, bg=BG_COLOR)
+        row_frame.pack(pady=1) 
+        for char in row_chars:
+            tk.Button(row_frame, text=char, font=FONT_SMALL, width=3, bg=KEY_BG, fg=KEY_FG,
+                      command=lambda c=char: on_key(c)).pack(side="left", padx=1, pady=1)
+
+    # Backspace
+    last_row = kb_frame.winfo_children()[-1]
+    tk.Button(last_row, text="⌫", font=FONT_SMALL, width=3, bg="#ffcccc", fg="#cc0000",
+              command=lambda: on_key("⌫")).pack(side="left", padx=1, pady=1)
+
+    btn_frame = tk.Frame(frame, bg=BG_COLOR)
+    btn_frame.pack(pady=5)
+    _styled_button(btn_frame, "CONFIRM", submit, bg=SUCCESS_COLOR).pack(side="left", padx=5)
+    _styled_button(btn_frame, "CANCEL", cancel, bg=ERROR_COLOR).pack(side="left", padx=5)
+
+    import time
+    while result["old"] is None and not result["cancelled"] and not app.exit_requested:
+        app.root.update()
+        time.sleep(0.05)
+    
+    return (result["old"], result["new"]) if not result["cancelled"] else (None, None)
+
+# ---------------- CONFIRM ACTION ---------------- #
+
+def confirm_action_screen(app, title, message):
+    app.clear()
+    result = {"confirmed": None}
+    frame = _center_frame(app)
+
+    tk.Label(frame, text=title, fg=WARNING_COLOR, bg=BG_COLOR, font=FONT_LARGE).pack(pady=20)
+    tk.Label(frame, text=message, fg=FG_COLOR, bg=BG_COLOR, font=FONT_MED, justify="center").pack(pady=20)
+
+    btn_frame = tk.Frame(frame, bg=BG_COLOR)
+    btn_frame.pack(pady=30)
+
+    def on_yes(): result["confirmed"] = True
+    def on_no(): result["confirmed"] = False
+
+    _styled_button(btn_frame, "YES, PROCEED", on_yes, bg=ERROR_COLOR).pack(side="left", padx=20)
+    _styled_button(btn_frame, "NO, CANCEL", on_no, bg=FG_COLOR).pack(side="left", padx=20)
+
+    import time
+    while result["confirmed"] is None and not app.exit_requested:
+        app.root.update()
+        time.sleep(0.05)
+
+    return result["confirmed"]
+
+# ---------------- TIME WINDOW ENDED ---------------- #
+
+def time_window_ended_screen(app):
+    app.clear()
+    result = {"action": None}
+
+    frame = _center_frame(app)
+    
+    tk.Label(frame, text="ELECTION TIME ENDED", fg=ERROR_COLOR, bg=BG_COLOR, font=FONT_LARGE).pack(pady=(0, 20))
+    tk.Label(frame, text="The designated time window for this election has closed.\nTokens can no longer be generated.", fg=FG_COLOR, bg=BG_COLOR, font=FONT_MED, justify="center").pack(pady=10)
+
+    btn_frame = tk.Frame(frame, bg=BG_COLOR)
+    btn_frame.pack(pady=30)
+    
+    def on_extend(): result["action"] = "EXTEND"
+    def on_end(): result["action"] = "END"
+    def on_samurai(): result["action"] = "SAMURAI_UNLOCK"
+
+    _styled_button(btn_frame, "ADMIN ACCESS", on_samurai, bg=WARNING_COLOR).pack(pady=10)
+
+    import time
+    while result["action"] is None and not app.exit_requested:
+        app.root.update()
+        time.sleep(0.05)
+
+    if result["action"] == "SAMURAI_UNLOCK":
+        # Prompt for password from admins 
+        pwd = password_prompt_screen(app)
+        # Verify pwd upstream, but we will return what they want to do
+        app.clear()
+        f2 = _center_frame(app)
+        tk.Label(f2, text="ADMIN OVERRIDE", fg=ACCENT_COLOR, bg=BG_COLOR, font=FONT_LARGE).pack(pady=20)
+        bf = tk.Frame(f2, bg=BG_COLOR)
+        bf.pack(pady=20)
+        
+        inner_res = {"choice": None}
+        def ch_ext(): inner_res["choice"] = "EXTEND_ELECTION"
+        def ch_end(): inner_res["choice"] = "END_ELECTION"
+        
+        _styled_button(bf, "EXTEND ELECTION", ch_ext, bg=SUCCESS_COLOR).pack(side="left", padx=10)
+        _styled_button(bf, "END ELECTION", ch_end, bg=ERROR_COLOR).pack(side="left", padx=10)
+        
+        while inner_res["choice"] is None and not app.exit_requested:
+            app.root.update()
+            time.sleep(0.05)
+            
+        return inner_res["choice"], pwd
+
+    return None, None

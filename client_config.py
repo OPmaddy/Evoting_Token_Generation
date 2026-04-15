@@ -17,7 +17,7 @@ if os.path.isfile(SERVER_CONFIG_PATH):
         pass
 
 # Base URL of the central coordination server
-SERVER_URL = _url_from_file or os.environ.get("SERVER_URL", "https://10.94.196.6:5000")
+SERVER_URL = _url_from_file or os.environ.get("SERVER_URL", "https://10.208.20.91:5000")
 
 # ─── TLS Client Certificates ─────────────────────────────────────────────────
 # Directory containing TLS certs for this device

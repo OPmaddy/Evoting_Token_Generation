@@ -18,7 +18,7 @@ For the application to function correctly, several files and directories **must 
 
 1. **`Electoral_Roll.csv`**
    - A CSV file containing the list of eligible voters.
-   - **Expected Format:** `Entry_Number,Name,Vector of which Elections he is elidgible for`
+   - **Expected Format:** `Entry_Number,Name,Vector`
    - **Example:** `2022EE11737,Madhav Gupta,E1;E3;E6`
 
 2. **`embeddings/` Directory**

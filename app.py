@@ -17,8 +17,17 @@ from ui.screens import (
     password_prompt_screen,
     admin_dashboard_screen,
     set_bmds_screen,
-    regenerate_prompt_screen
+    regenerate_prompt_screen,
+    reset_password_screen,
+    confirm_action_screen,
+    time_window_ended_screen
 )
+import subprocess
+import requests
+import zipfile
+import base64
+import shutil
+import io
 
 from logic.voter import VoterDB
 from logic.token import (
@@ -107,6 +116,142 @@ def main():
         num_booths = 2
         booth_keys = {}
 
+    # Load Device ID
+    app.device_id = "1"
+    if os.path.exists("device_id.txt"):
+        with open("device_id.txt", "r") as f:
+            app.device_id = f.read().strip()
+            
+    # Load Election End Time
+    app.election_end_time = None
+    if os.path.exists("election_end_time.txt"):
+        with open("election_end_time.txt", "r") as f:
+            try:
+                app.election_end_time = datetime.datetime.fromisoformat(f.read().strip())
+            except:
+                pass
+                
+    # Sync Time (Admin requires Sudo process)
+    try:
+        print("Attempting to sync time via NTP from Google...")
+        subprocess.run(
+            ["sudo", "date", "-s", "$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)Z"],
+            shell=True,
+            timeout=5
+        )
+    except Exception as e:
+        print(f"Time sync failed: {e}")
+
+    def _send_logs_to_server(app):
+        """Zip the logs directory and send it to the server."""
+        try:
+            if not os.path.exists("logs"):
+                print("No logs directory found to send.")
+                return False
+
+            # Create a zip in memory
+            memory_file = io.BytesIO()
+            with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for root, dirs, files in os.walk("logs"):
+                    for file in files:
+                        zf.write(os.path.join(root, file))
+            memory_file.seek(0)
+
+            # Use voter_db's session if available, or create new one
+            # Note: voter_db is defined in main() closure, but we can pass it or access via app
+            # For simplicity, we'll try to use the session with certs
+            
+            from client_config import SERVER_URL, DEVICE_ID, CLIENT_CERT, CLIENT_KEY, CA_CERT, DISABLE_TLS
+            
+            session = requests.Session()
+            if not DISABLE_TLS and os.path.exists(CLIENT_CERT):
+                session.cert = (CLIENT_CERT, CLIENT_KEY)
+                if os.path.exists(CA_CERT):
+                    session.verify = CA_CERT
+            elif DISABLE_TLS:
+                session.verify = False
+
+            url = f"{SERVER_URL.rstrip('/')}/api/device/{app.device_id}/logs"
+            files = {'log': (f"logs_device_{app.device_id}.zip", memory_file, 'application/zip')}
+            
+            resp = session.post(url, files=files, timeout=30)
+            if resp.status_code == 200:
+                print("Logs successfully sent to server.")
+                return True
+            else:
+                print(f"Failed to send logs: {resp.status_code} {resp.text}")
+                return False
+        except Exception as e:
+            print(f"Error sending logs: {e}")
+            return False
+
+    def _fetch_reinit_config(app):
+        """Fetch full configuration and certificates from server and apply them."""
+        try:
+            from client_config import SERVER_URL, DEVICE_ID, CLIENT_CERT, CLIENT_KEY, CA_CERT, DISABLE_TLS
+            
+            session = requests.Session()
+            if not DISABLE_TLS and os.path.exists(CLIENT_CERT):
+                session.cert = (CLIENT_CERT, CLIENT_KEY)
+                if os.path.exists(CA_CERT):
+                    session.verify = CA_CERT
+            elif DISABLE_TLS:
+                session.verify = False
+
+            url = f"{SERVER_URL.rstrip('/')}/api/device/{app.device_id}/reinit"
+            resp = session.get(url, timeout=30)
+            if resp.status_code != 200:
+                print(f"Failed to fetch reinit config: {resp.status_code} {resp.text}")
+                return False
+                
+            data = resp.json()
+            if data.get("status") != "success":
+                return False
+                
+            config = data.get("config", {})
+            certs = data.get("certificates", {})
+            
+            # 1. Update Certificates (if they changed)
+            # CAUTION: Overwriting current certs might be risky if network fails mid-write
+            # But the requirement is to refetch them.
+            os.makedirs("certs", exist_ok=True)
+            if certs.get("ca_crt"):
+                with open(os.path.join("certs", "ca.crt"), "w") as f: f.write(certs["ca_crt"])
+            if certs.get("device_crt"):
+                with open(os.path.join("certs", f"device_{app.device_id}.crt"), "w") as f: f.write(certs["device_crt"])
+            if certs.get("device_key"):
+                with open(os.path.join("certs", f"device_{app.device_id}.key"), "w") as f: f.write(certs["device_key"])
+                
+            # 2. Update allowed_bmds.json
+            with open("allowed_bmds.json", "w") as f:
+                json.dump({"allowed": config.get("allowed_bmds", [1])}, f)
+            app.allowed_bmds = config.get("allowed_bmds", [1])
+                
+            # 3. Update bmd_keys.json
+            with open("bmd_keys.json", "w") as f:
+                json.dump(config.get("bmd_keys", {}), f)
+                
+            # 4. Update Electoral_Roll.csv
+            e_roll_b64 = config.get("electoral_roll_b64")
+            if e_roll_b64:
+                with open("Electoral_Roll.csv", "wb") as f:
+                    f.write(base64.b64decode(e_roll_b64))
+                    
+            # 5. Update election_end_time.txt
+            end_time_str = config.get("election_end_time")
+            if end_time_str:
+                with open("election_end_time.txt", "w") as f:
+                    f.write(end_time_str)
+                try:
+                    app.election_end_time = datetime.datetime.fromisoformat(end_time_str)
+                except:
+                    pass
+            
+            return True
+        except Exception as e:
+            print(f"Error fetching reinit config: {e}")
+            return False
+
     def log_benchmark(entry, attempt, success, label=""):
         try:
             with open("benchmark_results.csv", "a", newline="") as f:
@@ -153,6 +298,48 @@ def main():
             app.root.destroy()
             return
 
+        # Check Time Window before anything
+        admin_override = False
+        if app.election_end_time and datetime.datetime.now() > app.election_end_time:
+            choice, pwd = time_window_ended_screen(app)
+            if choice == "EXTEND_ELECTION":
+                # Verify pwd
+                admin_pwd = "admin"
+                if os.path.exists("admin_sec.json"):
+                    with open("admin_sec.json", "r") as f:
+                        admin_pwd = json.load(f).get("pwd", "admin")
+                if pwd == admin_pwd:
+                    # Extend by clearing the end time for now locally, or you could add 1 hour
+                    app.election_end_time = datetime.datetime.now() + datetime.timedelta(hours=2)
+                    try:
+                        with open("election_end_time.txt", "w") as f:
+                            f.write(app.election_end_time.isoformat())
+                    except:
+                        pass
+                else:
+                    status_screen(app, "ACCESS DENIED", "Incorrect password", fg="red", delay=2000, on_done=flow)
+                    return
+            elif choice == "END_ELECTION":
+                admin_pwd = "admin"
+                if os.path.exists("admin_sec.json"):
+                    with open("admin_sec.json", "r") as f:
+                        admin_pwd = json.load(f).get("pwd", "admin")
+                if pwd == admin_pwd:
+                    status_screen(app, "ENDING ELECTION", "Packaging and sending logs to server...", fg="orange")
+                    app.root.update()
+                    # Trigger end election log send
+                    _send_logs_to_server(app)
+                    status_screen(app, "ELECTION ENDED", "Logs transferred. System locked.", fg="green")
+                    app.root.update()
+                    import time; time.sleep(4)
+                    return
+                else:
+                    status_screen(app, "ACCESS DENIED", "Incorrect password", fg="red", delay=2000, on_done=flow)
+                    return
+            else:
+                app.root.after(10, flow)
+                return
+
         if regenerate_entry:
             entry = regenerate_entry
         else:
@@ -163,7 +350,13 @@ def main():
 
         if not regenerate_entry and entry.strip().upper() == "SAMURAI":
             pwd = password_prompt_screen(app)
-            if pwd == "admin": 
+            
+            admin_pwd = "admin"
+            if os.path.exists("admin_sec.json"):
+                with open("admin_sec.json", "r") as f:
+                    admin_pwd = json.load(f).get("pwd", "admin")
+                    
+            if pwd == admin_pwd: 
                 while True:
                     action = admin_dashboard_screen(app)
                     if action == "EXIT":
@@ -190,6 +383,46 @@ def main():
                         if target_entry:
                             app.root.after(10, lambda: flow(regenerate_entry=target_entry))
                             return
+                    elif action == "FIRMWARE_UPDATE":
+                        status_screen(app, "UPDATING FIRMWARE", "Pulling latest code...", fg="orange")
+                        app.root.update()
+                        try:
+                            subprocess.run(["git", "pull"], check=True, cwd=os.path.dirname(__file__))
+                            status_screen(app, "UPDATE SUCCESS", "Code updated. Please restart.", fg="green", delay=3000, on_done=flow)
+                        except Exception as e:
+                            status_screen(app, "UPDATE FAILED", str(e), fg="red", delay=3000, on_done=flow)
+                        return
+                    elif action == "RESET_PASSWORD":
+                        old, new = reset_password_screen(app)
+                        if old == admin_pwd and new:
+                            try:
+                                with open("admin_sec.json", "w") as f:
+                                    json.dump({"pwd": new}, f)
+                                status_screen(app, "SUCCESS", "Password updated.", fg="green", delay=2000)
+                            except:
+                                status_screen(app, "ERROR", "Failed to save password.", fg="red", delay=2000)
+                        elif old is not None:
+                            status_screen(app, "ERROR", "Incorrect old password.", fg="red", delay=2000)
+                    elif action == "REINIT_ELECTIONS":
+                        c1 = confirm_action_screen(app, "RE-INITIALIZE ELECTIONS?", "WARNING: This will END the current election,\narchive all local databases and imagery,\nand wipe local state.\n\nAre you sure you want to proceed?")
+                        if c1:
+                            c2 = confirm_action_screen(app, "FINAL CONFIRMATION", "This action is strictly IRREVERSIBLE.\nLogs will be synced to the Server.\n\nProceed?")
+                            if c2:
+                                status_screen(app, "RE-INITIALIZING", "Sending logs to server...", fg="orange")
+                                app.root.update()
+                                _send_logs_to_server(app)
+                                success, msg = voter_db.rotate_files_and_reinitialize() 
+                                
+                                status_screen(app, "RE-INITIALIZING", "Fetching remote configuration...", fg="orange")
+                                app.root.update()
+                                s_res = _fetch_reinit_config(app)
+                                if s_res:
+                                    # Refresh the VoterDB object to use new certs if they changed
+                                    voter_db = VoterDB()
+                                    status_screen(app, "SUCCESS", "Elections Re-Initialized.", fg="green", delay=2000, on_done=flow)
+                                else:
+                                    status_screen(app, "PARTIAL FAIL", "Archived local logs, but server fetch failed.", fg="red", delay=3000, on_done=flow)
+                                return
             else:
                 status_screen(app, "ACCESS DENIED", "Incorrect password", fg="red", delay=2000, on_done=flow)
             return

@@ -13,6 +13,10 @@ GET   /api/voters                         Admin: list all voters
 
 from flask import Blueprint, request, jsonify, send_file
 import os
+import json
+import base64
+from datetime import datetime
+from werkzeug.utils import secure_filename
 from models import VoterCollection
 
 api = Blueprint("api", __name__, url_prefix="/api")
@@ -189,3 +193,104 @@ def list_voters():
         "count": len(all_voters),
         "voters": all_voters,
     }), 200
+
+
+# ─── Device Re-Initialization (Master Sync) ───────────────────────────────────
+
+@api.route("/device/<device_id>/reinit", methods=["GET"])
+def device_reinit(device_id: str):
+    """
+    Fetch all configurations and pre-existing certificates for re-initialization.
+    Assumes pre-existing certificates exist; otherwise throws an error.
+    """
+    base_dir = os.path.dirname(__file__)
+    
+    # 1. Fetch TLS Certificates
+    certs_dir = os.path.join(base_dir, "all_certs", f"device_{device_id}", "certs")
+    if not os.path.exists(certs_dir):
+        return jsonify({"error": f"Pre-existing certificates for device_{device_id} not found. Cannot re-initialize."}), 404
+        
+    try:
+        with open(os.path.join(certs_dir, "ca.crt"), "r") as f: ca_crt = f.read()
+        with open(os.path.join(certs_dir, f"device_{device_id}.crt"), "r") as f: dev_crt = f.read()
+        with open(os.path.join(certs_dir, f"device_{device_id}.key"), "r") as f: dev_key = f.read()
+    except Exception as e:
+        return jsonify({"error": f"Failed to read certificates: {str(e)}"}), 500
+
+    # 2. Fetch Election Config (End time and allowed BMDs)
+    config_path = os.path.join(base_dir, "election_config.json")
+    election_end_time = None
+    allowed_bmds = []
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                config = json.load(f)
+                election_end_time = config.get("election_end_time")
+                allowed_bmds = config.get("master_allowed_bmds", {}).get(device_id, [1])
+        except Exception:
+            pass
+            
+    # 3. Fetch BMD Keys
+    bmd_keys_path = os.path.join(base_dir, "..", "bmd_keys.json")
+    bmd_keys = {}
+    if os.path.exists(bmd_keys_path):
+        try:
+            with open(bmd_keys_path, "r") as f:
+                bmd_keys = json.load(f)
+        except Exception:
+            pass
+
+    # 4. Fetch Electoral Roll (Base64 encoded)
+    csv_path = os.path.join(base_dir, "..", "Electoral_Roll.csv")
+    electoral_roll_b64 = ""
+    if os.path.exists(csv_path):
+        try:
+            with open(csv_path, "rb") as f:
+                electoral_roll_b64 = base64.b64encode(f.read()).decode('utf-8')
+        except Exception:
+            pass
+
+    return jsonify({
+        "status": "success",
+        "certificates": {
+            "ca_crt": ca_crt,
+            "device_crt": dev_crt,
+            "device_key": dev_key
+        },
+        "config": {
+            "election_end_time": election_end_time,
+            "allowed_bmds": allowed_bmds,
+            "bmd_keys": bmd_keys,
+            "electoral_roll_b64": electoral_roll_b64
+        }
+    }), 200
+
+
+# ─── Upload Device Logs (End Election) ────────────────────────────────────────
+
+@api.route("/device/<device_id>/logs", methods=["POST"])
+def upload_device_logs(device_id: str):
+    """
+    Receives compressed/raw log files from a device when it ends elections or reinitializes.
+    """
+    if 'log' not in request.files:
+        return jsonify({"error": "No log file provided in 'log' field"}), 400
+        
+    file = request.files['log']
+    if file.filename == '':
+        return jsonify({"error": "Empty filename"}), 400
+        
+    logs_dir = os.path.join(os.path.dirname(__file__), "device_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_filename = secure_filename(file.filename)
+    final_filename = f"device_{device_id}_{timestamp}_{safe_filename}"
+    
+    file_path = os.path.join(logs_dir, final_filename)
+    try:
+        file.save(file_path)
+        return jsonify({"status": "success", "message": f"Log saved to {final_filename}"}), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to save log: {str(e)}"}), 500
+

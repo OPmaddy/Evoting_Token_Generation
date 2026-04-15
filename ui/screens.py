@@ -39,6 +39,9 @@ def entry_number_screen(app, mock_rfid=True):
     frame = _center_frame(app)
 
     # Compact Layout for Pi (480px height)
+    tk.Label(frame, text=f"DEVICE ID: {getattr(app, 'device_id', 'Unknown')}",
+             fg=FG_SECONDARY, bg=BG_COLOR, font=("Segoe UI", 10, "bold")).pack(pady=(0, 2))
+
     tk.Label(frame, text="VOTER IDENTIFICATION",
              fg=FG_SECONDARY, bg=BG_COLOR, font=("Segoe UI", 24, "bold")).pack(pady=(0, 5))
 
@@ -488,7 +491,10 @@ def admin_dashboard_screen(app):
     frame = _center_frame(app)
 
     tk.Label(frame, text="ADMIN DASHBOARD",
-             fg=ACCENT_COLOR, bg=BG_COLOR, font=("Segoe UI", 24, "bold")).pack(pady=(10, 20))
+             fg=ACCENT_COLOR, bg=BG_COLOR, font=("Segoe UI", 24, "bold")).pack(pady=(10, 5))
+
+    tk.Label(frame, text=f"Station ID: {getattr(app, 'device_id', '1')}",
+             fg=FG_SECONDARY, bg=BG_COLOR, font=("Segoe UI", 12, "bold")).pack(pady=(0, 10))
 
     btn_frame = tk.Frame(frame, bg=BG_COLOR)
     btn_frame.pack(pady=10)

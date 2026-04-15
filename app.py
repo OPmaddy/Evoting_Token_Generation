@@ -387,6 +387,8 @@ def main():
                         status_screen(app, "UPDATING FIRMWARE", "Pulling latest code...", fg="orange")
                         app.root.update()
                         try:
+                            # Stash any local changes to ensure pull succeeds
+                            subprocess.run(["git", "stash"], cwd=os.path.dirname(__file__))
                             subprocess.run(["git", "pull"], check=True, cwd=os.path.dirname(__file__))
                             status_screen(app, "UPDATE SUCCESS", "Code updated. Please restart.", fg="green", delay=3000, on_done=flow)
                         except Exception as e:

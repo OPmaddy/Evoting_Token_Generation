@@ -102,19 +102,19 @@ def main():
     else:
         app.allowed_bmds = [1]
         
-    voter_db = VoterDB()
+    app.voter_db = VoterDB()
     
     # Load Booth Public Keys
     bmd_keys_path = "bmd_keys.json"
     if os.path.exists(bmd_keys_path):
         with open(bmd_keys_path, "r") as f:
-            bmd_keys_data = json.load(f)
-        num_booths = bmd_keys_data.get("num_booths", 2)
-        booth_keys = bmd_keys_data.get("keys", {})
+            bk_data = json.load(f)
+        app.num_booths = bk_data.get("num_booths", 2)
+        app.booth_keys = bk_data.get("keys", {})
     else:
+        app.num_booths = 2
+        app.booth_keys = {}
         print("Warning: bmd_keys.json not found. Token encryption may fail.")
-        num_booths = 2
-        booth_keys = {}
 
     # Load Device ID
     app.device_id = "1"
@@ -294,7 +294,6 @@ def main():
         flow()
 
     def flow(regenerate_entry=None):
-        nonlocal voter_db, num_booths, booth_keys
         if app.exit_requested:
             app.root.destroy()
             return
@@ -366,14 +365,14 @@ def main():
                     elif action == "RESET":
                         status_screen(app, "RESETTING SYSTEM", "Rotating logs and fetching new electoral roll...", fg="orange")
                         app.root.update()
-                        success, msg = voter_db.rotate_files_and_reinitialize()
+                        success, msg = app.voter_db.rotate_files_and_reinitialize()
                         if success:
                             status_screen(app, "RESET SUCCESSFUL", msg, fg="green", delay=2500, on_done=flow)
                         else:
                             status_screen(app, "RESET FAILED", msg, fg="red", delay=4000, on_done=flow)
                         return
                     elif action == "SET_BMDS":
-                        app.allowed_bmds = set_bmds_screen(app, num_booths, app.allowed_bmds)
+                        app.allowed_bmds = set_bmds_screen(app, app.num_booths, app.allowed_bmds)
                         try:
                             with open("allowed_bmds.json", "w") as f:
                                 json.dump({"allowed": app.allowed_bmds}, f)
@@ -414,21 +413,21 @@ def main():
                                 status_screen(app, "RE-INITIALIZING", "Sending logs to server...", fg="orange")
                                 app.root.update()
                                 _send_logs_to_server(app)
-                                success, msg = voter_db.rotate_files_and_reinitialize() 
+                                success, msg = app.voter_db.rotate_files_and_reinitialize() 
                                 
                                 status_screen(app, "RE-INITIALIZING", "Fetching remote configuration...", fg="orange")
                                 app.root.update()
                                 s_res = _fetch_reinit_config(app)
                                 if s_res:
                                     # Refresh the VoterDB object to use new certs if they changed
-                                    voter_db = VoterDB()
+                                    app.voter_db = VoterDB()
                                     
                                     # Refresh BMD keys and booth count
                                     if os.path.exists("bmd_keys.json"):
                                         with open("bmd_keys.json", "r") as f:
                                             _bk_data = json.load(f)
-                                        num_booths = _bk_data.get("num_booths", 2)
-                                        booth_keys = _bk_data.get("keys", {})
+                                        app.num_booths = _bk_data.get("num_booths", 2)
+                                        app.booth_keys = _bk_data.get("keys", {})
                                         
                                     status_screen(app, "SUCCESS", "Elections Re-Initialized.", fg="green", delay=2000, on_done=flow)
                                 else:
@@ -437,9 +436,9 @@ def main():
             else:
                 status_screen(app, "ACCESS DENIED", "Incorrect password", fg="red", delay=2000, on_done=flow)
             return
-
-        voter = voter_db.get_voter_local(entry)
-
+ 
+        voter = app.voter_db.get_voter_local(entry)
+ 
         if not IS_DEBUG:
             if voter is None:
                 status_screen(app, "ENTRY NOT FOUND", 
@@ -450,32 +449,32 @@ def main():
             # Provide mock voter object for face checking flow
             if voter is None:
                voter = {"Entry_Number": entry, "EID_Vector": "E1", "Name": "Mock Debug Voter"} 
-
+ 
         # Immediate mandatory confirmation step using local info
         if not voter_confirmation_screen(app, voter):
             app.root.after(10, flow)
             return
-
+ 
         # Fetch remote status only after the user confirms their name
         status_screen(app, "VERIFYING STATUS", "Connecting to central server...\nPlease wait.", fg="white")
         app.root.update()
         
-        voter = voter_db.sync_voter_remote(voter)
-
+        voter = app.voter_db.sync_voter_remote(voter)
+ 
         if not IS_DEBUG:
-            if not regenerate_entry and voter_db.has_token(voter):
+            if not regenerate_entry and app.voter_db.has_token(voter):
                 already_generated_screen(app, voter, on_done=flow)
                 return
-
+ 
             # Check if another device is already processing this voter
-            if voter_db.is_in_progress(voter):
+            if app.voter_db.is_in_progress(voter):
                 status_screen(app, "IN PROGRESS",
                               "This voter is currently being processed by another device.\nPlease wait or try a different voter.",
                               fg="orange", on_done=flow)
                 return
-
+ 
             # Request permission from the central server to generate token
-            req_ok, req_msg = voter_db.request_token(entry, regenerate=bool(regenerate_entry))
+            req_ok, req_msg = app.voter_db.request_token(entry, regenerate=bool(regenerate_entry))
             if not req_ok:
                 status_screen(app, "REQUEST DENIED",
                               f"Cannot generate token for this voter:\n{req_msg}",
@@ -567,7 +566,7 @@ def main():
                 return
 
             # Release the lock on the central server so another device can try
-            voter_db.cancel_token(entry)
+            app.voter_db.cancel_token(entry)
 
             status_screen(
                 app,
@@ -599,13 +598,13 @@ def main():
         payload = build_token_payload(entry, voter["EID_Vector"], booth)
         
         booth_str = str(booth)
-        if booth_str not in booth_keys:
+        if booth_str not in app.booth_keys:
             status_screen(app, "SYSTEM ERROR", 
                           f"Public key for Booth {booth} not found.\nPlease contact Administrator.",
                           fg="red", on_done=flow)
             return
             
-        public_key_pem = booth_keys[booth_str]
+        public_key_pem = app.booth_keys[booth_str]
         encrypted = encrypt_payload(payload, public_key_pem)
 
         def rfid_cb(msg):
@@ -682,7 +681,7 @@ def main():
 
             if not write_success:
                 # Release the lock on the central server
-                voter_db.cancel_token(entry)
+                app.voter_db.cancel_token(entry)
 
                 status_screen(app, "CARD ERROR",
                               "Failed to write voting token to the Smart Card.\nPlease retry or replace the card.", 
@@ -690,7 +689,7 @@ def main():
                 return
 
             # Save full audit record to LOCAL SQLite (images, timestamps)
-            voter_db.stage_token(
+            app.voter_db.stage_token(
                 entry_number=entry,
                 token_id=payload["token_id"],
                 issued_at=payload["issued_at"],
@@ -700,7 +699,7 @@ def main():
             )
 
             # Notify central server that generation succeeded (sync)
-            voter_db.confirm_token(
+            app.voter_db.confirm_token(
                 entry_number=entry,
                 token_id=payload["token_id"],
                 booth=booth

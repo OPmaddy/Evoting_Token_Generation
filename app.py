@@ -294,6 +294,7 @@ def main():
         flow()
 
     def flow(regenerate_entry=None):
+        nonlocal voter_db, num_booths, booth_keys
         if app.exit_requested:
             app.root.destroy()
             return
@@ -421,6 +422,14 @@ def main():
                                 if s_res:
                                     # Refresh the VoterDB object to use new certs if they changed
                                     voter_db = VoterDB()
+                                    
+                                    # Refresh BMD keys and booth count
+                                    if os.path.exists("bmd_keys.json"):
+                                        with open("bmd_keys.json", "r") as f:
+                                            _bk_data = json.load(f)
+                                        num_booths = _bk_data.get("num_booths", 2)
+                                        booth_keys = _bk_data.get("keys", {})
+                                        
                                     status_screen(app, "SUCCESS", "Elections Re-Initialized.", fg="green", delay=2000, on_done=flow)
                                 else:
                                     status_screen(app, "PARTIAL FAIL", "Archived local logs, but server fetch failed.", fg="red", delay=3000, on_done=flow)

@@ -141,6 +141,12 @@ def main():
     except Exception as e:
         print(f"Time sync failed: {e}")
 
+    def reboot_system():
+        """Ensure disk is synced and reboot the system."""
+        print("Syncing disks and rebooting...")
+        subprocess.run(["sync"])
+        subprocess.run(["sudo", "reboot"])
+
     def _send_logs_to_server(app):
         """Zip the logs directory and send it to the server."""
         try:
@@ -367,7 +373,7 @@ def main():
                         app.root.update()
                         success, msg = app.voter_db.rotate_files_and_reinitialize()
                         if success:
-                            status_screen(app, "RESET SUCCESSFUL", msg, fg="green", delay=2500, on_done=flow)
+                            status_screen(app, "RESET SUCCESSFUL", msg + "\nRebooting...", fg="green", delay=3000, on_done=reboot_system)
                         else:
                             status_screen(app, "RESET FAILED", msg, fg="red", delay=4000, on_done=flow)
                         return
@@ -390,7 +396,7 @@ def main():
                             # Stash any local changes to ensure pull succeeds
                             subprocess.run(["git", "stash"], cwd=os.path.dirname(__file__))
                             subprocess.run(["git", "pull"], check=True, cwd=os.path.dirname(__file__))
-                            status_screen(app, "UPDATE SUCCESS", "Code updated. Please restart.", fg="green", delay=3000, on_done=flow)
+                            status_screen(app, "UPDATE SUCCESS", "Code updated. System will reboot.", fg="green", delay=3000, on_done=reboot_system)
                         except Exception as e:
                             status_screen(app, "UPDATE FAILED", str(e), fg="red", delay=3000, on_done=flow)
                         return
@@ -429,7 +435,7 @@ def main():
                                         app.num_booths = _bk_data.get("num_booths", 2)
                                         app.booth_keys = _bk_data.get("keys", {})
                                         
-                                    status_screen(app, "SUCCESS", "Elections Re-Initialized.", fg="green", delay=2000, on_done=flow)
+                                    status_screen(app, "SUCCESS", "Elections Re-Initialized.\nRebooting...", fg="green", delay=3000, on_done=reboot_system)
                                 else:
                                     status_screen(app, "PARTIAL FAIL", "Archived local logs, but server fetch failed.", fg="red", delay=3000, on_done=flow)
                                 return

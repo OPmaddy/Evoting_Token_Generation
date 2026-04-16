@@ -47,7 +47,41 @@ Every Token Generation Station (TGstation) needs the **Master Certificate** to c
 
 ---
 
-## 🗳️ Step 3: Running an Election
+## 🌐 Step 3: Browser Access & Identity Verification
+
+Because the server enforces **Mutual TLS (mTLS)**, your web browser must present a valid certificate to the server. Without this, the server will reject the connection immediately.
+
+### 1. Locate the Admin Certificate
+On the server, find the browser-ready certificate file:
+`server_end/master_certs/admin_browser.p12`
+
+### 2. Import the Certificate into your Browser
+You must import this file into your "Personal Certificates" store:
+
+#### **Chrome / Edge / Windows**
+1.  Open Chrome Settings -> **Privacy and Security** -> **Security**.
+2.  Select **Manage Device Certificates** (opens Windows Certificate Manager).
+3.  Go to the **Personal** tab and click **Import**.
+4.  Browse for `admin_browser.p12`.
+5.  **Password**: The default password is `admin123`.
+6.  Restart your browser.
+
+#### **Firefox**
+1.  Firefox Settings -> **Privacy & Security**.
+2.  Scroll to **Certificates** and click **View Certificates**.
+3.  In the **Your Certificates** tab, click **Import**.
+4.  Select `admin_browser.p12`.
+5.  **Password**: `admin123`.
+
+### 3. Access the Dashboard
+Navigate to:
+`https://<server-ip>:5000/admin/dashboard`
+
+When prompted by your browser, select the **"EVoting Admin User"** certificate.
+
+---
+
+## 🗳️ Step 4: Running an Election
 
 ### 1. Access the Dashboard
 Open your browser and navigate to:

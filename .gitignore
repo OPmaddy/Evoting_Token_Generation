@@ -9,6 +9,7 @@ server_end/master_certs/
 server_end/ca_bundle.crt
 server_end/election_state.json
 server_end/regeneration_audit.log
+*.p12
 Electoral_Roll.csv
 Electoral_Roll_1.csv
 voters.json

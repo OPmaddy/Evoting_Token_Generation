@@ -10,3 +10,10 @@ Electoral_Roll.csv
 Electoral_Roll_1.csv
 voters.json
 device_id.txt
+admin_sec.json
+election_end_time.txt
+logs/
+dumped_images/
+mock_rfid.txt
+allowed_bmds.json
+admin_credentials.json

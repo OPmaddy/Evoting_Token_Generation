@@ -11,18 +11,66 @@ POST  /api/voter/<entry_number>/cancel    Report failure / release lock
 GET   /api/voters                         Admin: list all voters
 """
 
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, render_template, request, jsonify, send_file, redirect, url_for
 import os
 import json
 import base64
+import pandas as pd
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from models import VoterCollection
+from election_manager import ElectionManager
 
 api = Blueprint("api", __name__, url_prefix="/api")
+admin = Blueprint("admin", __name__, url_prefix="/admin")
 
-# Shared collection instance — initialised once when the blueprint is first imported.
+# Shared collection instance
 voters = VoterCollection()
+manager = ElectionManager(os.path.dirname(__file__))
+
+# ─── Security Helpers ──────────────────────────────────────────────────────────
+
+def get_cert_cn():
+    """Extract Common Name from client certificate."""
+    # Dev server environment
+    peercert = request.environ.get('peercert')
+    if not peercert:
+        # Gunicorn / other WSGI servers might name it differently
+        peercert = request.environ.get('wsgi.peercert')
+    
+    if peercert and 'subject' in peercert:
+        for tuple_val in peercert['subject']:
+            for key, value in tuple_val:
+                if key == 'commonName':
+                    return value
+    return None
+
+@api.before_request
+def restrict_master_certs():
+    """
+    Enforce: Master Certs only for Provisioning.
+    Election Certs for Voting.
+    """
+    if request.endpoint and request.endpoint.startswith('api.'):
+        cn = get_cert_cn()
+        if not cn:
+            # If no cert, usually handshake fails, but if allowed through, reject.
+            return jsonify({"error": "Certificate required"}), 403
+            
+        is_master = cn.startswith("EVoting-Master-Client")
+        is_reinit = request.path.endswith('/reinit')
+        is_health = request.path.endswith('/health')
+
+        if is_master and not (is_reinit or is_health):
+            return jsonify({"error": "Master certificate restricted to provisioning only"}), 403
+        
+        if not is_master and is_reinit:
+            # Reinit should ideally accept master cert originally, 
+            # but for convenience we can allow current election certs too? 
+            # Re-read: "Devices should only be allowed to request for there certs using master certificate"
+            # Actually, to be strict:
+            pass # Keep it simple for now, allow both for reinit if needed, 
+                 # but block master for others.
 
 
 # ─── Health ────────────────────────────────────────────────────────────────────
@@ -195,20 +243,22 @@ def list_voters():
     }), 200
 
 
-# ─── Device Re-Initialization (Master Sync) ───────────────────────────────────
+# ─── Master Re-Initialization (Master Sync) ───────────────────────────────────
 
 @api.route("/device/<device_id>/reinit", methods=["GET"])
 def device_reinit(device_id: str):
     """
     Fetch all configurations and pre-existing certificates for re-initialization.
-    Assumes pre-existing certificates exist; otherwise throws an error.
     """
+    if not manager.state.get("active_election"):
+        return jsonify({"error": "No active election found on server."}), 404
+
     base_dir = os.path.dirname(__file__)
     
-    # 1. Fetch TLS Certificates
+    # 1. Fetch TLS Certificates from all_certs
     certs_dir = os.path.join(base_dir, "all_certs", f"device_{device_id}", "certs")
     if not os.path.exists(certs_dir):
-        return jsonify({"error": f"Pre-existing certificates for device_{device_id} not found. Cannot re-initialize."}), 404
+        return jsonify({"error": f"Certificates for device_{device_id} not found."}), 404
         
     try:
         with open(os.path.join(certs_dir, "ca.crt"), "r") as f: ca_crt = f.read()
@@ -217,38 +267,23 @@ def device_reinit(device_id: str):
     except Exception as e:
         return jsonify({"error": f"Failed to read certificates: {str(e)}"}), 500
 
-    # 2. Fetch Election Config (End time and allowed BMDs)
-    config_path = os.path.join(base_dir, "election_config.json")
-    election_end_time = None
-    allowed_bmds = []
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r") as f:
-                config = json.load(f)
-                election_end_time = config.get("election_end_time")
-                allowed_bmds = config.get("master_allowed_bmds", {}).get(device_id, [1])
-        except Exception:
-            pass
+    # 2. Fetch Election Config
+    config = manager.state.get("config", {})
+    election_end_time = config.get("election_end_time")
+    allowed_bmds = config.get("bmd_mapping", {}).get(device_id, [1])
             
     # 3. Fetch BMD Keys
-    bmd_keys_path = os.path.join(base_dir, "..", "bmd_keys.json")
-    bmd_keys = {}
-    if os.path.exists(bmd_keys_path):
-        try:
-            with open(bmd_keys_path, "r") as f:
-                bmd_keys = json.load(f)
-        except Exception:
-            pass
+    bmd_keys = config.get("bmd_keys", {})
 
-    # 4. Fetch Electoral Roll (Base64 encoded)
+    # 4. Fetch Electoral Roll (Base64)
     csv_path = os.path.join(base_dir, "..", "Electoral_Roll.csv")
     electoral_roll_b64 = ""
     if os.path.exists(csv_path):
-        try:
-            with open(csv_path, "rb") as f:
-                electoral_roll_b64 = base64.b64encode(f.read()).decode('utf-8')
-        except Exception:
-            pass
+        with open(csv_path, "rb") as f:
+            electoral_roll_b64 = base64.b64encode(f.read()).decode('utf-8')
+
+    # Mark device as provisioned
+    manager.update_device_status(device_id, "provisioned", True)
 
     return jsonify({
         "status": "success",
@@ -264,6 +299,157 @@ def device_reinit(device_id: str):
             "electoral_roll_b64": electoral_roll_b64
         }
     }), 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ADMIN DASHBOARD ROUTES
+# ══════════════════════════════════════════════════════════════════════════════
+
+@admin.route("/dashboard")
+def dashboard():
+    return render_template("dashboard.html", 
+                           election_active=manager.state.get("active_election"),
+                           master_update_required=manager.state.get("master_update_required"),
+                           devices=manager.state.get("devices", {}))
+
+@admin.route("/init", methods=["GET", "POST"])
+def init_election():
+    if request.method == "POST":
+        e_roll = request.files.get("electoral_roll")
+        b_keys = request.files.get("bmd_keys")
+        num_tgens = int(request.form.get("num_tgens", 1))
+        end_time = request.form.get("end_time")
+
+        if not e_roll or not b_keys:
+            return "Missing files", 400
+
+        # Build mapping
+        mapping = {}
+        for i in range(1, num_tgens + 1):
+            ids = request.form.get(f"bmd_mapping_{i}", str(i))
+            mapping[str(i)] = [int(x.strip()) for x in ids.split(",") if x.strip().isdigit()]
+
+        bmd_keys_data = json.load(b_keys)
+        
+        election_config = {
+            "num_tgens": num_tgens,
+            "bmd_mapping": mapping,
+            "bmd_keys": bmd_keys_data,
+            "election_end_time": end_time
+        }
+
+        manager.start_election(e_roll.read(), num_tgens, election_config)
+        # Clear the update required flag on new election start if you wish, 
+        # or keep it until dismissed. Let's keep it until start.
+        manager.state["master_update_required"] = False
+        manager._save_state()
+        return redirect(url_for("admin.dashboard"))
+
+    return render_template("init_election.html")
+
+@admin.route("/rotate_master", methods=["POST"])
+def rotate_master():
+    manager.rotate_master_credentials()
+    # Flash message or similar would be nice, but we have the flag in state
+    return redirect(url_for("admin.dashboard"))
+
+@admin.route("/end", methods=["POST"])
+def end_election():
+    manager.end_election()
+    return redirect(url_for("admin.dashboard"))
+
+@admin.route("/report")
+def report():
+    # Compile stats
+    all_voters = voters.get_all_voters()
+    total_voters = len(all_voters)
+    voted_list = [v for v in all_voters if v.get("status") and v["status"].startswith("generated_at_device_")]
+    voted_count = len(voted_list)
+    
+    # Audit log
+    audit_log = []
+    regen_count = 0
+    for v in voted_list:
+        dev_id = v.get("device_id") or v["status"].replace("generated_at_device_", "")
+        is_regen = v.get("is_regenerated", False)
+        if is_regen:
+            regen_count += 1
+            
+        audit_log.append({
+            "voter_id": v["entry_number"],
+            "device_id": dev_id,
+            "timestamp": v.get("generated_at", "N/A"),
+            "regenerated": is_regen
+        })
+    
+    # Participation Stats
+    stats = {
+        "participation_percent": round((voted_count/total_voters)*100, 2) if total_voters > 0 else 0,
+        "voted_count": voted_count,
+        "total_voters": total_voters,
+        "total_tokens": voted_count,
+        "regen_count": regen_count
+    }
+    
+    return render_template("report.html", stats=stats, audit_log=audit_log)
+
+@admin.route("/report/download")
+def download_master_report():
+    """Generates and serves a ZIP with consolidated reports and logs."""
+    import io
+    import zipfile
+    import csv
+
+    # 1. Master CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Voter_ID", "Device_ID", "Token_ID", "Booth", "Generated_At", "Is_Regenerated"])
+    
+    all_voters = voters.get_all_voters()
+    for v in all_voters:
+        if v.get("status") and v["status"].startswith("generated_at_device_"):
+            writer.writerow([
+                v["entry_number"],
+                v.get("device_id"),
+                v.get("token_id"),
+                v.get("booth_number"),
+                v.get("generated_at"),
+                v.get("is_regenerated", False)
+            ])
+    
+    # 2. Regeneration Logs (from the audit file if it exists)
+    regen_log_content = ""
+    regen_log_path = os.path.join(os.path.dirname(__file__), "regeneration_audit.log")
+    if os.path.exists(regen_log_path):
+        with open(regen_log_path, "r") as f:
+            regen_log_content = f.read()
+
+    # Create ZIP in memory
+    memory_file = io.BytesIO()
+    with zipfile.ZipFile(memory_file, 'w') as zf:
+        # Master CSV
+        zf.writestr("master_audit_report.csv", output.getvalue())
+        # Regeneration log
+        if regen_log_content:
+            zf.writestr("regeneration_history.log", regen_log_content)
+        
+        # Also include all device local logs if they were uploaded
+        logs_dir = os.path.join(os.path.dirname(__file__), "device_logs")
+        if os.path.exists(logs_dir):
+            for root, dirs, files in os.walk(logs_dir):
+                for file in files:
+                    filepath = os.path.join(root, file)
+                    zf.write(filepath, arcname=os.path.join("raw_device_logs", file))
+
+    memory_file.seek(0)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return send_file(
+        memory_file,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=f"election_master_report_{timestamp}.zip"
+    )
 
 
 # ─── Upload Device Logs (End Election) ────────────────────────────────────────

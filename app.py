@@ -193,13 +193,30 @@ def main():
     def _fetch_reinit_config(app):
         """Fetch full configuration and certificates from server and apply them."""
         try:
-            from client_config import SERVER_URL, DEVICE_ID, CLIENT_CERT, CLIENT_KEY, CA_CERT, DISABLE_TLS
+            from client_config import (
+                SERVER_URL, DEVICE_ID, CLIENT_CERT, CLIENT_KEY, CA_CERT, 
+                DISABLE_TLS, MASTER_CERT, MASTER_KEY, MASTER_CA
+            )
             
             session = requests.Session()
-            if not DISABLE_TLS and os.path.exists(CLIENT_CERT):
-                session.cert = (CLIENT_CERT, CLIENT_KEY)
-                if os.path.exists(CA_CERT):
-                    session.verify = CA_CERT
+            if not DISABLE_TLS:
+                # 1. Try with standard election certificates
+                if os.path.exists(CLIENT_CERT):
+                    session.cert = (CLIENT_CERT, CLIENT_KEY)
+                    if os.path.exists(CA_CERT):
+                        session.verify = CA_CERT
+                # 2. Fallback to Master Certificate for bootstrapping
+                elif os.path.exists(MASTER_CERT):
+                    print("Election certificates missing. Using Master Certificate for provisioning...")
+                    session.cert = (MASTER_CERT, MASTER_KEY)
+                    if os.path.exists(MASTER_CA):
+                        session.verify = MASTER_CA
+                    else:
+                        # If server uses a different CA for master certs, it might be in system bundle
+                        pass
+                else:
+                    print("Error: No valid certificates (Election or Master) found.")
+                    return False
             elif DISABLE_TLS:
                 session.verify = False
 

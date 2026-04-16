@@ -25,7 +25,9 @@ from config import (
 def create_app() -> Flask:
     """Flask application factory."""
     app_instance = Flask(__name__)
+    from routes import api, admin
     app_instance.register_blueprint(api)
+    app_instance.register_blueprint(admin)
     return app_instance
 
 # Expose the application globally for WSGI servers (e.g. gunicorn)
@@ -53,9 +55,16 @@ def build_tls_context() -> ssl.SSLContext:
 
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(certfile=TLS_SERVER_CERT, keyfile=TLS_SERVER_KEY)
+    
+    # Load Main CA
     ctx.load_verify_locations(cafile=TLS_CA_CERT)
+    
+    # Also Trust Master CA (if it exists)
+    master_ca = os.path.join(os.path.dirname(__file__), "master_certs", "master_ca.crt")
+    if os.path.exists(master_ca):
+        ctx.load_verify_locations(cafile=master_ca)
 
-    # Require the client to present a valid certificate signed by our CA
+    # Require the client to present a valid certificate signed by one of our CAs
     ctx.verify_mode = ssl.CERT_REQUIRED
 
     # Minimum TLS 1.2 — reject older, insecure protocols

@@ -5,7 +5,10 @@ __pycache__/
 voters.db
 benchmark_results.csv
 server_end/all_certs/
-server_end/certs
+server_end/master_certs/
+server_end/ca_bundle.crt
+server_end/election_state.json
+server_end/regeneration_audit.log
 Electoral_Roll.csv
 Electoral_Roll_1.csv
 voters.json

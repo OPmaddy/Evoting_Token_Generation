@@ -1,0 +1,64 @@
+{% extends "layout.html" %}
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+    <h2>📈 Election Reports</h2>
+    <a href="/admin/report/download" class="btn btn-primary">Download Master Audit ZIP</a>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
+    <div class="card" style="text-align: center;">
+        <h4 style="color: var(--text-secondary); margin-top:0">Participation</h4>
+        <div style="font-size: 2.5rem; font-weight: 600; color: var(--accent-color);">{{ stats.participation_percent }}%</div>
+        <p style="margin-bottom:0">{{ stats.voted_count }} / {{ stats.total_voters }} voters</p>
+    </div>
+    <div class="card" style="text-align: center;">
+        <h4 style="color: var(--text-secondary); margin-top:0">Total Tokens</h4>
+        <div style="font-size: 2.5rem; font-weight: 600; color: var(--success);">{{ stats.total_tokens }}</div>
+        <p style="margin-bottom:0">Successfully Issued</p>
+    </div>
+    <div class="card" style="text-align: center;">
+        <h4 style="color: var(--text-secondary); margin-top:0">Regenerations</h4>
+        <div style="font-size: 2.5rem; font-weight: 600; color: var(--warning);">{{ stats.regen_count }}</div>
+        <p style="margin-bottom:0">Identity Overrides</p>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Token Issuance Log</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Voter ID</th>
+                <th>Station</th>
+                <th>Issued At</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for record in audit_log %}
+            <tr {% if record.regenerated %}style="color: var(--warning)"{% endif %}>
+                <td><strong>{{ record.voter_id }}</strong></td>
+                <td>Device {{ record.device_id }}</td>
+                <td>{{ record.timestamp }}</td>
+                <td>
+                    {% if record.regenerated %}
+                    <span class="status-badge status-pending">Regenerated</span>
+                    {% else %}
+                    <span class="status-badge status-online">Normal</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not audit_log %}
+            <tr>
+                <td colspan="4" style="text-align: center; color: var(--text-secondary); padding: 2rem;">No tokens issued in this window.</td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+document.getElementById('nav-report').classList.add('active');
+</script>
+{% endblock %}

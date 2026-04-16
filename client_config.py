@@ -44,6 +44,12 @@ CLIENT_KEY  = os.environ.get("CLIENT_KEY",  os.path.join(TLS_CERT_DIR, f"device_
 # CA certificate (shared — same CA that signed the server cert)
 CA_CERT = os.environ.get("CA_CERT", os.path.join(TLS_CERT_DIR, "ca.crt"))
 
+# ─── Master Certificates (One-time manual placement) ─────────────────────────
+MASTER_CERT_DIR = os.path.join(TLS_CERT_DIR, "master")
+MASTER_CERT = os.path.join(MASTER_CERT_DIR, "master_client.crt")
+MASTER_KEY  = os.path.join(MASTER_CERT_DIR, "master_client.key")
+MASTER_CA   = os.path.join(MASTER_CERT_DIR, "master_ca.crt")
+
 # ─── Development / Offline Mode ──────────────────────────────────────────────
 # Set to True to disable TLS verification (development only!)
 DISABLE_TLS = os.environ.get("DISABLE_TLS", "false").lower() in ("true", "1", "yes")

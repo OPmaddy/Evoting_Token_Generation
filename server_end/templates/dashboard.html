@@ -1,0 +1,74 @@
+{% extends "layout.html" %}
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+    <h2>📊 Election Monitoring</h2>
+    <div>
+        {% if election_active %}
+        <span class="status-badge status-online">ELECTION ACTIVE</span>
+        {% else %}
+        <span class="status-badge status-offline">ELECTION IDLE</span>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <h3>Device Status</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Status</th>
+                <th>Certs Provisioned</th>
+                <th>Logs Uploaded</th>
+                <th>Last Heartbeat</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for id, dev in devices.items() %}
+            <tr>
+                <td><strong>{{ id }}</strong></td>
+                <td>
+                    {% if dev.last_active %}
+                    <span class="status-badge status-online">Active</span>
+                    {% else %}
+                    <span class="status-badge status-offline">Not Started</span>
+                    {% endif %}
+                </td>
+                <td>{{ "✅ Yes" if dev.provisioned else "❌ No" }}</td>
+                <td>{{ "✅ Success" if dev.logs_uploaded else "⏳ Pending" }}</td>
+                <td>{{ dev.last_active or "N/A" }}</td>
+            </tr>
+            {% endfor %}
+            {% if not devices %}
+            <tr>
+                <td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 2rem;">No devices configured. Initialize an election to start.</td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+{% if election_active %}
+<div class="card" style="border: 1px solid var(--error); background: rgba(239, 68, 68, 0.05);">
+    <h3 style="color: var(--error)">Danger Zone</h3>
+    <p>Ending the election will stop all devices from generating tokens and prepare final reports.</p>
+    <form action="/admin/end" method="POST" onsubmit="return confirm('Are you sure you want to END the current election?')">
+        <button type="submit" class="btn btn-danger">END ELECTION & COLLECT RESULTS</button>
+    </form>
+</div>
+{% else %}
+<div class="card" style="border: 1px solid var(--warning); background: rgba(245, 158, 11, 0.05);">
+    <h3 style="color: var(--warning)">Security & Certificates</h3>
+    <p>Master Certificates are used to provision new stations. Rotate them ONLY if compromised.</p>
+    <form action="/admin/rotate_master" method="POST" onsubmit="return confirm('WARNING: Rotating Master Certificates will invalidate current ones on all devices. You MUST manually replace them. Continue?')">
+        <button type="submit" class="btn" style="background-color: var(--warning); color: var(--bg-color);">ROTATE MASTER CREDENTIALS</button>
+    </form>
+</div>
+{% endif %}
+
+<script>
+document.getElementById('nav-dashboard').classList.add('active');
+// Auto-refresh every 10 seconds
+setTimeout(() => { window.location.reload(); }, 10000);
+</script>
+{% endblock %}

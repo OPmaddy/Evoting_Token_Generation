@@ -340,6 +340,14 @@ def device_reinit(device_id: str):
 #  ADMIN DASHBOARD ROUTES
 # ══════════════════════════════════════════════════════════════════════════════
 
+@admin.context_processor
+def inject_globals():
+    return dict(
+        election_active=manager.state.get("active_election", False),
+        active_election_name=manager.state.get("active_election_name", "None")
+    )
+
+
 @admin.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -384,11 +392,16 @@ def dashboard():
 
 @admin.route("/init", methods=["GET", "POST"])
 def init_election():
+    if manager.state.get("active_election"):
+        flash("An election is currently active. You must end it before starting a new one.", "error")
+        return redirect(url_for("admin.dashboard"))
+
     if request.method == "POST":
         e_roll = request.files.get("electoral_roll")
         b_keys = request.files.get("bmd_keys")
         num_tgens = int(request.form.get("num_tgens", 1))
         end_time = request.form.get("end_time")
+        election_name = request.form.get("election_name", "Untitled Election").strip()
 
         if not e_roll or not b_keys:
             return "Missing files", 400
@@ -402,6 +415,7 @@ def init_election():
         bmd_keys_data = json.load(b_keys)
         
         election_config = {
+            "election_name": election_name,
             "num_tgens": num_tgens,
             "bmd_mapping": mapping,
             "bmd_keys": bmd_keys_data,
@@ -427,6 +441,26 @@ def rotate_master():
 def end_election():
     manager.end_election()
     return redirect(url_for("admin.dashboard"))
+
+@admin.route("/archives")
+def archives():
+    manifest_path = os.path.join(os.path.dirname(__file__), "archives", "manifest.json")
+    manifest = []
+    if os.path.exists(manifest_path):
+        with open(manifest_path, "r") as f:
+            manifest = json.load(f)
+            
+    # Sort newest first
+    manifest = sorted(manifest, key=lambda x: x.get("timestamp", ""), reverse=True)
+    return render_template("archives.html", manifest=manifest)
+
+@admin.route("/archives/download/<filename>")
+def download_archive(filename):
+    archive_dir = os.path.join(os.path.dirname(__file__), "archives")
+    file_path = os.path.join(archive_dir, filename)
+    if not os.path.exists(file_path):
+        return "Archive not found", 404
+    return send_file(file_path, as_attachment=True)
 
 @admin.route("/report")
 def report():

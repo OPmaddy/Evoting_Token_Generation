@@ -147,8 +147,11 @@
         <h1><span>🛡️</span> EVoting Admin</h1>
         <ul class="nav-links">
             <li><a href="/admin/dashboard" id="nav-dashboard">Monitor</a></li>
+            {% if not election_active %}
             <li><a href="/admin/init" id="nav-init">New Election</a></li>
-            <li><a href="/admin/report" id="nav-report">Reports</a></li>
+            {% endif %}
+            <li><a href="/admin/report" id="nav-report">Live Report</a></li>
+            <li><a href="/admin/archives" id="nav-archives">Past Elections</a></li>
         </ul>
         <div style="margin-top: auto;">
             <ul class="nav-links">

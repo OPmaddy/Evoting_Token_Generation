@@ -1,0 +1,45 @@
+{% extends "layout.html" %}
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+    <h2>🗄️ Past Elections</h2>
+</div>
+
+<div class="card">
+    <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+        Historical logs and token generation reports for all ended elections. 
+        Downloading the master ZIP gives you the complete final state of the voters and devices.
+    </p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Election Name</th>
+                <th>Ended Timestamp</th>
+                <th>Master Archive</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in manifest %}
+            <tr>
+                <td><strong>{{ item.name }}</strong></td>
+                <td>{{ item.timestamp[:4] }}-{{ item.timestamp[4:6] }}-{{ item.timestamp[6:8] }} at {{ item.timestamp[9:11] }}:{{ item.timestamp[11:13] }}</td>
+                <td>
+                    <a href="/admin/archives/download/{{ item.zip }}" class="btn" style="padding: 0.5rem 1rem; text-decoration: none;">⬇️ Download ZIP</a>
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not manifest %}
+            <tr>
+                <td colspan="3" style="text-align: center; color: var(--text-secondary); padding: 2rem;">
+                    No past elections found. When an election ends, its archive will appear here.
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+document.getElementById('nav-archives').classList.add('active');
+</script>
+{% endblock %}

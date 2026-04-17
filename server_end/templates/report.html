@@ -1,8 +1,8 @@
 {% extends "layout.html" %}
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-    <h2>📈 Election Reports</h2>
-    <a href="/admin/report/download" class="btn btn-primary">Download Master Audit ZIP</a>
+    <h2>📈 Live Report: {{ active_election_name }}</h2>
+    <a href="/admin/report/download" class="btn btn-primary">Download Current Data</a>
 </div>
 
 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">

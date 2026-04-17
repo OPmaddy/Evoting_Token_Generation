@@ -9,6 +9,11 @@ from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.primitives.asymmetric import rsa
+import db_init
+from models import VoterCollection
+import zipfile
+import shutil
+import glob
 
 STATE_FILE = "election_state.json"
 CERTS_DIR = "all_certs"
@@ -243,18 +248,66 @@ class ElectionManager:
 
         # 4. Save state
         self.state["active_election"] = True
+        self.state["active_election_name"] = election_config.get("election_name", "Untitled")
         self.state["master_update_required"] = self.state.get("master_update_required", False) 
         self.state["config"] = election_config
         self.state["devices"] = {str(i): {"provisioned": False, "last_active": None, "logs_uploaded": False} for i in range(1, num_tgens + 1)}
         self._save_state()
 
         # 5. Save Electoral Roll
-        with open(os.path.join(self.base_dir, "..", "Electoral_Roll.csv"), "wb") as f:
+        csv_path = os.path.join(self.base_dir, "..", "Electoral_Roll.csv")
+        with open(csv_path, "wb") as f:
             f.write(electoral_roll_content)
+
+        # 6. Wipe and Reset Database securely
+        db_init.import_electoral_roll(csv_path, drop_existing=True)
 
         return True
 
     def end_election(self):
+        # Package Archive before clearing
+        election_name = self.state.get("config", {}).get("election_name", "Untitled")
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = "".join([c for c in election_name if c.isalpha() or c.isdigit() or c==' ']).rstrip().replace(" ", "_")
+        archive_dir = os.path.join(self.base_dir, "archives")
+        os.makedirs(archive_dir, exist_ok=True)
+        
+        archive_base = os.path.join(archive_dir, f"election_{safe_name}_{timestamp}")
+        
+        # Pull Voter Report from DB
+        voters_db = VoterCollection()
+        all_voters = list(voters_db.collection.find({}, {"_id": 0}))
+        report_path = archive_base + "_report.json"
+        with open(report_path, "w") as f:
+            json.dump(all_voters, f, indent=4)
+            
+        # Create ZIP Archive containing the report and all device logs
+        zip_path = archive_base + "_master.zip"
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.write(report_path, arcname="voter_report.json")
+            
+            # Find all uploaded logs
+            for log_file in glob.glob(os.path.join(self.certs_dir, "device_*", "logs", "*.log")):
+                parts = log_file.split(os.sep)
+                if len(parts) >= 3:
+                    device_id = parts[-3]
+                    filename = parts[-1]
+                    zf.write(log_file, arcname=f"logs/{device_id}/{filename}")
+                    
+        # Add to manifest
+        manifest_path = os.path.join(archive_dir, "manifest.json")
+        manifest = []
+        if os.path.exists(manifest_path):
+            with open(manifest_path, "r") as f:
+                manifest = json.load(f)
+        manifest.append({
+            "name": election_name,
+            "timestamp": timestamp,
+            "zip": os.path.basename(zip_path)
+        })
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f, indent=4)
+        
         self.state["active_election"] = False
         self._save_state()
         return True

@@ -24,8 +24,10 @@ SERVER_URL = _url_from_file or os.environ.get("SERVER_URL", "https://10.208.20.9
 TLS_CERT_DIR = os.environ.get("TLS_CERT_DIR", os.path.join(os.path.dirname(__file__), "certs"))
 
 # ─── Device Identity ──────────────────────────────────────────────────────────
-# Try to find device ID in the certs folder (auto-discovery)
-_device_id_path = os.path.join(TLS_CERT_DIR, "device_id.txt")
+# Try to find device ID in the root folder, or alternatively the certs folder
+_device_id_path = os.path.join(os.path.dirname(__file__), "device_id.txt")
+if not os.path.isfile(_device_id_path):
+    _device_id_path = os.path.join(TLS_CERT_DIR, "device_id.txt")
 _id_from_file = None
 if os.path.isfile(_device_id_path):
     try:

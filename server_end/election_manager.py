@@ -232,6 +232,15 @@ class ElectionManager:
         # 3. Update CA Bundle for mTLS trust
         self._update_ca_bundle()
 
+        # 3b. Gracefully reload Gunicorn so it reads the new CA bundle into RAM
+        try:
+            import signal
+            # Gunicorn arbiter is the parent of the worker process
+            os.kill(os.getppid(), signal.SIGHUP)
+        except Exception as e:
+            print("Failed to send SIGHUP to Gunicorn:", e)
+
+
         # 4. Save state
         self.state["active_election"] = True
         self.state["master_update_required"] = self.state.get("master_update_required", False) 

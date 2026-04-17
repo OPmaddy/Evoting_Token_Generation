@@ -54,12 +54,18 @@ class ElectionManager:
         ).serial_number(
             x509.random_serial_number()
         ).not_valid_before(
-            datetime.datetime.utcnow()
+            datetime.datetime.utcnow() - datetime.timedelta(days=1)
         ).not_valid_after(
             datetime.datetime.utcnow() + datetime.timedelta(days=3650)
         ).add_extension(
             x509.BasicConstraints(ca=True, path_length=None), critical=True,
+        ).add_extension(
+            x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=True, encipher_only=False, decipher_only=False),
+            critical=True
+        ).add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False
         ).sign(key, hashes.SHA256())
+
 
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path + ".key", "wb") as f:
@@ -90,9 +96,15 @@ class ElectionManager:
         ).serial_number(
             x509.random_serial_number()
         ).not_valid_before(
-            datetime.datetime.utcnow()
+            datetime.datetime.utcnow() - datetime.timedelta(days=1)
         ).not_valid_after(
             datetime.datetime.utcnow() + datetime.timedelta(days=825)
+        ).add_extension(
+            x509.BasicConstraints(ca=False, path_length=None), critical=True
+        ).add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False
+        ).add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False
         )
 
         if is_server:
@@ -114,9 +126,22 @@ class ElectionManager:
             builder = builder.add_extension(
                 x509.SubjectAlternativeName(san_list),
                 critical=False,
+            ).add_extension(
+                x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=True, data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False, encipher_only=False, decipher_only=False),
+                critical=True
+            ).add_extension(
+                x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]), critical=False
+            )
+        else:
+            builder = builder.add_extension(
+                x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False, encipher_only=False, decipher_only=False),
+                critical=True
+            ).add_extension(
+                x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH]), critical=False
             )
 
         cert = builder.sign(ca_key, hashes.SHA256())
+
 
         os.makedirs(os.path.dirname(cert_path), exist_ok=True)
         with open(cert_path + ".key", "wb") as f:

@@ -114,21 +114,31 @@ class ElectionManager:
         return key, cert
 
     def setup_master_certs(self):
-        """One-time setup for the Master CA, and Master Client Cert."""
+        """One-time setup for the Master CA, Master Client Cert, and Server Cert."""
         if os.path.exists(os.path.join(self.master_dir, "master_ca.crt")):
+            # Upgrade path: ensure server.crt exists even if master CA is already there
+            server_cert_path = os.path.join(self.master_dir, "server.crt")
+            if not os.path.exists(server_cert_path):
+                with open(os.path.join(self.master_dir, "master_ca.key"), "rb") as f:
+                    ca_key = serialization.load_pem_private_key(f.read(), password=None)
+                with open(os.path.join(self.master_dir, "master_ca.crt"), "rb") as f:
+                    ca_cert = x509.load_pem_x509_certificate(f.read())
+                self.generate_cert(ca_key, ca_cert, os.path.join(self.master_dir, "server"), u"evoting-server", is_server=True)
+            
             self._update_ca_bundle()
             return
         
         self.rotate_master_credentials()
 
     def rotate_master_credentials(self):
-        """Explicitly regenerate master CA, and client certificate."""
+        """Explicitly regenerate master CA, client certificate, and server certificate."""
         if os.path.exists(self.master_dir):
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             os.rename(self.master_dir, f"{self.master_dir}_old_{timestamp}")
             
         ca_key, ca_cert = self.generate_ca(os.path.join(self.master_dir, "master_ca"), u"EVoting-Master-CA")
         self.generate_cert(ca_key, ca_cert, os.path.join(self.master_dir, "master_client"), u"EVoting-Master-Client")
+        self.generate_cert(ca_key, ca_cert, os.path.join(self.master_dir, "server"), u"evoting-server", is_server=True)
         
         self.state["master_update_required"] = True
         self._update_ca_bundle()
@@ -165,19 +175,18 @@ class ElectionManager:
         # 2. Generate Election CA and Certs (Stage 2)
         ca_key, ca_cert = self.generate_ca(os.path.join(self.certs_dir, "election_ca"), u"EVoting-Election-CA")
         
-        # Server cert (for election communication)
-        # We also need a way for server to identify itself using this CA if needed,
-        # but for now we focus on TRUSTING the client certs.
-        self.generate_cert(ca_key, ca_cert, os.path.join(self.certs_dir, "server"), u"evoting-server", is_server=True)
+        # NOTE: The server ALWAYS identifies itself using the Master CA to simplify trust.
+        with open(os.path.join(self.master_dir, "master_ca.crt"), "rb") as f:
+            master_ca_bytes = f.read()
 
-        # Device certs (Stage 2)
+        # Device certs (Stage 2 - their identity)
         for i in range(1, num_tgens + 1):
             device_id = str(i)
             device_path = os.path.join(self.certs_dir, f"device_{device_id}", "certs")
             self.generate_cert(ca_key, ca_cert, os.path.join(device_path, f"device_{device_id}"), f"evoting-device-{device_id}")
-            # Copy Election CA cert to device folder so they can verify server
+            # The device uses the Master CA to verify the Server's identity
             with open(os.path.join(device_path, "ca.crt"), "wb") as f:
-                f.write(ca_cert.public_bytes(serialization.Encoding.PEM))
+                f.write(master_ca_bytes)
 
         # 3. Update CA Bundle for mTLS trust
         self._update_ca_bundle()

@@ -15,11 +15,11 @@ SERVER_PORT = int(os.environ.get("SERVER_PORT", "5000"))
 
 # ─── TLS / mTLS ──────────────────────────────────────────────────────────────
 # Paths are relative to the server_end/ directory unless absolute.
-TLS_CERT_DIR = os.environ.get("TLS_CERT_DIR", os.path.join(os.path.dirname(__file__), "certs"))
+TLS_CERT_DIR = os.environ.get("TLS_CERT_DIR", os.path.join(os.path.dirname(__file__), "master_certs"))
 
 TLS_SERVER_CERT = os.environ.get("TLS_SERVER_CERT", os.path.join(TLS_CERT_DIR, "server.crt"))
 TLS_SERVER_KEY  = os.environ.get("TLS_SERVER_KEY",  os.path.join(TLS_CERT_DIR, "server.key"))
-TLS_CA_CERT     = os.environ.get("TLS_CA_CERT",     os.path.join(TLS_CERT_DIR, "ca.crt"))
+TLS_CA_CERT     = os.environ.get("TLS_CA_CERT",     os.path.join(TLS_CERT_DIR, "master_ca.crt"))
 
 # ─── Stale Request Timeout ────────────────────────────────────────────────────
 # If a device requests a token but never confirms/cancels, the request is

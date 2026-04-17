@@ -33,12 +33,26 @@ manager = ElectionManager(os.path.dirname(__file__))
 
 def get_cert_cn():
     """Extract Common Name from client certificate."""
-    # Dev server environment
     peercert = request.environ.get('peercert')
-    if not peercert:
-        # Gunicorn / other WSGI servers might name it differently
-        peercert = request.environ.get('wsgi.peercert')
     
+    # Gunicorn does not automatically place 'peercert' into the environ dict like Werkzeug.
+    # We must extract it from the raw SSLSocket directly.
+    if not peercert:
+        sock = request.environ.get('gunicorn.socket')
+        if not sock:
+            try:
+                wsgi_input = request.environ.get('wsgi.input')
+                if hasattr(wsgi_input, 'raw'):
+                    sock = getattr(wsgi_input.raw, '_sock', None)
+            except Exception:
+                pass
+                
+        if sock and hasattr(sock, 'getpeercert'):
+            try:
+                peercert = sock.getpeercert()
+            except Exception:
+                pass
+
     if peercert and 'subject' in peercert:
         for tuple_val in peercert['subject']:
             for key, value in tuple_val:

@@ -28,6 +28,7 @@ def create_app() -> Flask:
     from routes import api, admin
     app_instance.register_blueprint(api)
     app_instance.register_blueprint(admin)
+    app_instance.secret_key = os.environ.get("FLASK_SECRET_KEY", "default-fallback-secret-key")
     return app_instance
 
 # Expose the application globally for WSGI servers (e.g. gunicorn)
@@ -64,8 +65,10 @@ def build_tls_context() -> ssl.SSLContext:
     if os.path.exists(master_ca):
         ctx.load_verify_locations(cafile=master_ca)
 
-    # Require the client to present a valid certificate signed by one of our CAs
-    ctx.verify_mode = ssl.CERT_REQUIRED
+    # Require the client to present a valid certificate IF available.
+    # We now enforce access logically checking the cert CN inside /api/*
+    # and use password sessions for /admin/*
+    ctx.verify_mode = ssl.CERT_OPTIONAL
 
     # Minimum TLS 1.2 — reject older, insecure protocols
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2

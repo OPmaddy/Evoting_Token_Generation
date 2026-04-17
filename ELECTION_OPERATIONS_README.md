@@ -25,6 +25,7 @@ Run this command ONCE to initialize the Master CA and Master Client Certificate:
 ```bash
 cd server_end
 python -c "from election_manager import ElectionManager; em = ElectionManager('.'); em.setup_master_certs()"
+python -c "from election_manager import ElectionManager; em = ElectionManager('.'); em.generate_admin_p12()"
 ```
 This creates the `master_certs/` directory and the `ca_bundle.crt`.
 
@@ -47,37 +48,26 @@ Every Token Generation Station (TGstation) needs the **Master Certificate** to c
 
 ---
 
-## 🌐 Step 3: Browser Access & Identity Verification
+## 🌐 Step 3: Browser Access & Login
 
-Because the server enforces **Mutual TLS (mTLS)**, your web browser must present a valid certificate to the server. Without this, the server will reject the connection immediately.
+The administrative dashboard is protected by a session-based login system. You do not need to install any certificates in your browser.
 
-### 1. Locate the Admin Certificate
-On the server, find the browser-ready certificate file:
-`server_end/master_certs/admin_browser.p12`
-
-### 2. Import the Certificate into your Browser
-You must import this file into your "Personal Certificates" store:
-
-#### **Chrome / Edge / Windows**
-1.  Open Chrome Settings -> **Privacy and Security** -> **Security**.
-2.  Select **Manage Device Certificates** (opens Windows Certificate Manager).
-3.  Go to the **Personal** tab and click **Import**.
-4.  Browse for `admin_browser.p12`.
-5.  **Password**: The default password is `admin123`.
-6.  Restart your browser.
-
-#### **Firefox**
-1.  Firefox Settings -> **Privacy & Security**.
-2.  Scroll to **Certificates** and click **View Certificates**.
-3.  In the **Your Certificates** tab, click **Import**.
-4.  Select `admin_browser.p12`.
-5.  **Password**: `admin123`.
-
-### 3. Access the Dashboard
-Navigate to:
+### 1. Access the Dashboard
+Open your browser and navigate to:
 `https://<server-ip>:5000/admin/dashboard`
 
-When prompted by your browser, select the **"EVoting Admin User"** certificate.
+*(Your browser may show a "Not Secure" warning because it does not recognize the custom Master CA. This is expected and safe for internal use; click "Advanced" -> "Proceed".)*
+
+### 2. Login
+Use the default credentials to access the system:
+- **Username**: `admin`
+- **Password**: `admin123`
+
+### 3. Security Best Practice
+Once logged in, it is highly recommended to change the password:
+1. Look at the bottom of the left sidebar.
+2. Click **Security Settings**.
+3. Update your password to something secure.
 
 ---
 

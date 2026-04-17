@@ -11,7 +11,8 @@ POST  /api/voter/<entry_number>/cancel    Report failure / release lock
 GET   /api/voters                         Admin: list all voters
 """
 
-from flask import Blueprint, render_template, request, jsonify, send_file, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, send_file, redirect, url_for, session, flash
+from werkzeug.security import generate_password_hash, check_password_hash
 import os
 import json
 import base64
@@ -44,6 +45,26 @@ def get_cert_cn():
                 if key == 'commonName':
                     return value
     return None
+
+ADMIN_CREDS_FILE = os.path.join(os.path.dirname(__file__), "admin_credentials.json")
+
+def get_admin_creds():
+    if not os.path.exists(ADMIN_CREDS_FILE):
+        default_creds = {"username": "admin", "password_hash": generate_password_hash("admin123")}
+        with open(ADMIN_CREDS_FILE, "w") as f:
+            json.dump(default_creds, f)
+        return default_creds
+    with open(ADMIN_CREDS_FILE, "r") as f:
+        return json.load(f)
+
+@admin.before_request
+def restrict_admin_access():
+    """Ensure user is logged in before accessing admin routes."""
+    # Allow access to login without session
+    if request.path.endswith("/login"):
+        return
+    if not session.get("logged_in"):
+        return redirect(url_for("admin.login", next=request.path))
 
 @api.before_request
 def restrict_master_certs():
@@ -304,6 +325,41 @@ def device_reinit(device_id: str):
 # ══════════════════════════════════════════════════════════════════════════════
 #  ADMIN DASHBOARD ROUTES
 # ══════════════════════════════════════════════════════════════════════════════
+
+@admin.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
+        creds = get_admin_creds()
+        if username == creds.get("username") and check_password_hash(creds.get("password_hash"), password):
+            session["logged_in"] = True
+            next_url = request.args.get("next") or url_for("admin.dashboard")
+            return redirect(next_url)
+        else:
+            flash("Invalid credentials", "error")
+    return render_template("login.html")
+
+@admin.route("/logout")
+def logout():
+    session.pop("logged_in", None)
+    return redirect(url_for("admin.login"))
+
+@admin.route("/change_password", methods=["GET", "POST"])
+def change_password():
+    if request.method == "POST":
+        old_password = request.form.get("old_password")
+        new_password = request.form.get("new_password")
+        creds = get_admin_creds()
+        if check_password_hash(creds.get("password_hash"), old_password):
+            creds["password_hash"] = generate_password_hash(new_password)
+            with open(ADMIN_CREDS_FILE, "w") as f:
+                json.dump(creds, f)
+            flash("Password updated successfully.", "success")
+            return redirect(url_for("admin.dashboard"))
+        else:
+            flash("Incorrect current password.", "error")
+    return render_template("change_password.html")
 
 @admin.route("/dashboard")
 def dashboard():

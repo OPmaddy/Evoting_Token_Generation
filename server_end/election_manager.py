@@ -113,36 +113,8 @@ class ElectionManager:
             f.write(cert.public_bytes(serialization.Encoding.PEM))
         return key, cert
 
-    def generate_admin_p12(self, password=u"admin123"):
-        """Generate a PKCS#12 file for browser import."""
-        m_ca_key_path = os.path.join(self.master_dir, "master_ca.key")
-        m_ca_cert_path = os.path.join(self.master_dir, "master_ca.crt")
-        
-        if not os.path.exists(m_ca_key_path):
-            self.setup_master_certs()
-
-        with open(m_ca_key_path, "rb") as f:
-            ca_key = serialization.load_pem_private_key(f.read(), password=None)
-        with open(m_ca_cert_path, "rb") as f:
-            ca_cert = x509.load_pem_x509_certificate(f.read())
-
-        admin_key, admin_cert = self.generate_cert(ca_key, ca_cert, os.path.join(self.master_dir, "admin_browser"), u"EVoting-Admin-User")
-        
-        p12_data = pkcs12.serialize_key_and_certificates(
-            name=b"EVoting Admin",
-            key=admin_key,
-            cert=admin_cert,
-            cas=[ca_cert],
-            encryption_algorithm=serialization.BestAvailableEncryption(password.encode())
-        )
-        
-        p12_path = os.path.join(self.master_dir, "admin_browser.p12")
-        with open(p12_path, "wb") as f:
-            f.write(p12_data)
-        return p12_path
-
     def setup_master_certs(self):
-        """One-time setup for the Master CA, Master Client Cert, and Admin P12."""
+        """One-time setup for the Master CA, and Master Client Cert."""
         if os.path.exists(os.path.join(self.master_dir, "master_ca.crt")):
             self._update_ca_bundle()
             return
@@ -150,7 +122,7 @@ class ElectionManager:
         self.rotate_master_credentials()
 
     def rotate_master_credentials(self):
-        """Explicitly regenerate master CA, client certificate, and admin p12."""
+        """Explicitly regenerate master CA, and client certificate."""
         if os.path.exists(self.master_dir):
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             os.rename(self.master_dir, f"{self.master_dir}_old_{timestamp}")
@@ -158,13 +130,10 @@ class ElectionManager:
         ca_key, ca_cert = self.generate_ca(os.path.join(self.master_dir, "master_ca"), u"EVoting-Master-CA")
         self.generate_cert(ca_key, ca_cert, os.path.join(self.master_dir, "master_client"), u"EVoting-Master-Client")
         
-        # Generate browser-importable certificate
-        self.generate_admin_p12()
-        
         self.state["master_update_required"] = True
         self._update_ca_bundle()
         self._save_state()
-        print("Master credentials and Admin P12 generated. Manual update required on stations and browser.")
+        print("Master credentials generated. Manual update required on stations.")
 
     def _update_ca_bundle(self):
         """Bundle all trusted CAs into one file for Gunicorn/mTLS."""

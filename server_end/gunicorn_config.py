@@ -19,7 +19,7 @@ keyfile = TLS_SERVER_KEY
 # Use the managed CA bundle that includes both Master and Election CAs
 ca_certs = os.path.join(os.path.dirname(__file__), "ca_bundle.crt")
 
-cert_reqs = ssl.CERT_REQUIRED
+cert_reqs = ssl.CERT_OPTIONAL
 ssl_version = ssl.PROTOCOL_TLS_SERVER
 
 def on_starting(server):

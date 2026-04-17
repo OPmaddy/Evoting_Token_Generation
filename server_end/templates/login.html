@@ -1,0 +1,17 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="card" style="max-width: 400px; margin: 0 auto; width: 100%;">
+    <h2 style="text-align: center; margin-bottom: 2rem;">Admin Login</h2>
+    <form action="/admin/login" method="POST">
+        <div style="margin-bottom: 1.5rem;">
+            <label style="display: block; margin-bottom: 0.5rem; color: var(--text-secondary);">Username</label>
+            <input type="text" name="username" required placeholder="admin" style="width: 100%; padding: 0.75rem; background: var(--bg-color); border: 1px solid #334155; color: white; border-radius: 6px; box-sizing: border-box;">
+        </div>
+        <div style="margin-bottom: 2rem;">
+            <label style="display: block; margin-bottom: 0.5rem; color: var(--text-secondary);">Password</label>
+            <input type="password" name="password" required style="width: 100%; padding: 0.75rem; background: var(--bg-color); border: 1px solid #334155; color: white; border-radius: 6px; box-sizing: border-box;">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">LOGIN</button>
+    </form>
+</div>
+{% endblock %}

@@ -2,6 +2,8 @@ import os
 import json
 import datetime
 import base64
+import socket
+import ipaddress
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
@@ -94,9 +96,23 @@ class ElectionManager:
         )
 
         if is_server:
-            # Add SAN for server if needed, for simplicity using IP/DNS based on CN
+            san_list = [x509.DNSName(common_name), x509.DNSName("localhost")]
+            
+            try:
+                san_list.append(x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")))
+                san_list.append(x509.IPAddress(ipaddress.IPv4Address("10.208.20.91"))) # Default
+                
+                # Fetch active local network IP
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+                san_list.append(x509.IPAddress(ipaddress.IPv4Address(local_ip)))
+            except Exception:
+                pass
+
             builder = builder.add_extension(
-                x509.SubjectAlternativeName([x509.DNSName(common_name)]),
+                x509.SubjectAlternativeName(san_list),
                 critical=False,
             )
 

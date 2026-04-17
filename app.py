@@ -199,31 +199,40 @@ def main():
             )
             
             session = requests.Session()
-            if not DISABLE_TLS:
-                # 1. Try with standard election certificates
-                if os.path.exists(CLIENT_CERT):
-                    session.cert = (CLIENT_CERT, CLIENT_KEY)
-                    if os.path.exists(CA_CERT):
-                        session.verify = CA_CERT
-                # 2. Fallback to Master Certificate for bootstrapping
-                elif os.path.exists(MASTER_CERT):
-                    print("Election certificates missing. Using Master Certificate for provisioning...")
-                    session.cert = (MASTER_CERT, MASTER_KEY)
-                    if os.path.exists(MASTER_CA):
-                        session.verify = MASTER_CA
+            
+            def attempt_request(use_master=False):
+                if not DISABLE_TLS:
+                    if use_master:
+                        if os.path.exists(MASTER_CERT) and os.path.exists(MASTER_KEY):
+                            session.cert = (MASTER_CERT, MASTER_KEY)
+                            session.verify = MASTER_CA if os.path.exists(MASTER_CA) else True
+                        else:
+                            return None, "Master certificates missing"
                     else:
-                        # If server uses a different CA for master certs, it might be in system bundle
-                        pass
+                        if os.path.exists(CLIENT_CERT) and os.path.exists(CLIENT_KEY):
+                            session.cert = (CLIENT_CERT, CLIENT_KEY)
+                            session.verify = CA_CERT if os.path.exists(CA_CERT) else True
+                        else:
+                            return attempt_request(use_master=True)
                 else:
-                    print("Error: No valid certificates (Election or Master) found.")
-                    return False
-            elif DISABLE_TLS:
-                session.verify = False
+                    session.verify = False
 
-            url = f"{SERVER_URL.rstrip('/')}/api/device/{app.device_id}/reinit"
-            resp = session.get(url, timeout=30)
-            if resp.status_code != 200:
-                print(f"Failed to fetch reinit config: {resp.status_code} {resp.text}")
+                url = f"{SERVER_URL.rstrip('/')}/api/device/{app.device_id}/reinit"
+                try:
+                    return session.get(url, timeout=30), None
+                except Exception as e:
+                    return None, str(e)
+
+            # Execution
+            resp, error = attempt_request(use_master=False)
+            
+            # If failed with election cert, retry with master
+            if error or (resp and resp.status_code in (403, 401)):
+                print(f"Provisioning with election certs failed ({error or resp.status_code}), falling back to Master...")
+                resp, error = attempt_request(use_master=True)
+
+            if error or not resp or resp.status_code != 200:
+                print(f"Failed to fetch reinit config: {error or (resp.status_code if resp else 'No response')} {resp.text if resp else ''}")
                 return False
                 
             data = resp.json()

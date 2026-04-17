@@ -207,7 +207,8 @@ class ElectionManager:
             with open(e_ca, "r") as f: cas.append(f.read())
             
         with open(bundle_path, "w") as f:
-            f.write("\n".join(cas))
+            # Join with triple newlines to ensure clean separation even if inputs lack them
+            f.write("\n\n".join([c.strip() for c in cas if c.strip()]))
         return bundle_path
 
     def start_election(self, electoral_roll_content, num_tgens, election_config):

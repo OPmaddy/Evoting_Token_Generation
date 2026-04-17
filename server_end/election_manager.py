@@ -5,6 +5,7 @@ import base64
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 STATE_FILE = "election_state.json"
@@ -127,17 +128,17 @@ class ElectionManager:
 
         admin_key, admin_cert = self.generate_cert(ca_key, ca_cert, os.path.join(self.master_dir, "admin_browser"), u"EVoting-Admin-User")
         
-        p12 = serialization.pkcs12.serialize_key_and_certificates(
-            name=u"EVoting Admin",
+        p12_data = pkcs12.serialize_key_and_certificates(
+            name=b"EVoting Admin",
             key=admin_key,
             cert=admin_cert,
-            additional_certificates=[ca_cert],
+            cas=[ca_cert],
             encryption_algorithm=serialization.BestAvailableEncryption(password.encode())
         )
         
         p12_path = os.path.join(self.master_dir, "admin_browser.p12")
         with open(p12_path, "wb") as f:
-            f.write(p12)
+            f.write(p12_data)
         return p12_path
 
     def setup_master_certs(self):

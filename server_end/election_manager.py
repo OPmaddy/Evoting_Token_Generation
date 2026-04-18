@@ -287,13 +287,21 @@ class ElectionManager:
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             zf.write(report_path, arcname="voter_report.json")
             
-            # Find all uploaded logs
-            for log_file in glob.glob(os.path.join(self.certs_dir, "device_*", "logs", "*.log")):
-                parts = log_file.split(os.sep)
-                if len(parts) >= 3:
-                    device_id = parts[-3]
-                    filename = parts[-1]
-                    zf.write(log_file, arcname=f"logs/{device_id}/{filename}")
+            # Archive Regeneration Audit Log if it exists
+            audit_log_path = os.path.join(self.base_dir, "regeneration_audit.log")
+            if os.path.exists(audit_log_path):
+                zf.write(audit_log_path, arcname="regeneration_audit.log")
+                # Once archived safely, we can delete the active one to start fresh for the next election
+                os.remove(audit_log_path)
+            
+            # Find all uploaded logs (which could be .zip or .log based on extraction state)
+            for file_ext in ["*.log", "*.zip"]:
+                for log_file in glob.glob(os.path.join(self.certs_dir, "device_*", "logs", file_ext)):
+                    parts = log_file.split(os.sep)
+                    if len(parts) >= 3:
+                        device_id = parts[-3]
+                        filename = parts[-1]
+                        zf.write(log_file, arcname=f"logs/{device_id}/{filename}")
                     
         # Add to manifest
         manifest_path = os.path.join(archive_dir, "manifest.json")

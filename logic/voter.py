@@ -223,6 +223,7 @@ class VoterDB:
             # in the local dict even if the local DB hasn't been updated yet
             if server_status.startswith("generated_at_device_"):
                 local["TokenID"] = remote.get("token_id") or local.get("TokenID")
+                local["Booth_Number"] = remote.get("booth_number") or local.get("Booth_Number")
 
             local["_server_status"] = server_status
             local["_server_device"] = remote.get("device_id")

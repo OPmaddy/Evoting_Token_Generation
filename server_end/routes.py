@@ -570,7 +570,7 @@ def upload_device_logs(device_id: str):
     if file.filename == '':
         return jsonify({"error": "Empty filename"}), 400
         
-    logs_dir = os.path.join(os.path.dirname(__file__), "device_logs")
+    logs_dir = os.path.join(manager.certs_dir, f"device_{device_id}", "logs")
     os.makedirs(logs_dir, exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -580,6 +580,7 @@ def upload_device_logs(device_id: str):
     file_path = os.path.join(logs_dir, final_filename)
     try:
         file.save(file_path)
+        manager.update_device_status(device_id, "logs_uploaded", True)
         return jsonify({"status": "success", "message": f"Log saved to {final_filename}"}), 200
     except Exception as e:
         return jsonify({"error": f"Failed to save log: {str(e)}"}), 500

@@ -507,7 +507,6 @@ def admin_dashboard_screen(app):
     def on_reset_pwd(): result["action"] = "RESET_PASSWORD"
     def on_exit(): result["action"] = "EXIT"
 
-    _styled_button(btn_frame, "END ELECTION & RESET", on_reset, bg=ERROR_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "RE-INITIALIZE ELECTIONS", on_reinit, bg=ERROR_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "FIRMWARE UPDATE", on_fw_update, bg=WARNING_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "SET ALLOWED BMDS", on_set_bmds, bg=ACCENT_COLOR).pack(pady=5, fill="x")

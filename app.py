@@ -394,15 +394,6 @@ def main():
                     if action == "EXIT":
                         app.root.after(10, flow)
                         return
-                    elif action == "RESET":
-                        status_screen(app, "RESETTING SYSTEM", "Rotating logs and fetching new electoral roll...", fg="orange")
-                        app.root.update()
-                        success, msg = app.voter_db.rotate_files_and_reinitialize()
-                        if success:
-                            status_screen(app, "RESET SUCCESSFUL", msg + "\nRebooting...", fg="green", delay=3000, on_done=reboot_system)
-                        else:
-                            status_screen(app, "RESET FAILED", msg, fg="red", delay=4000, on_done=flow)
-                        return
                     elif action == "SET_BMDS":
                         app.allowed_bmds = set_bmds_screen(app, app.num_booths, app.allowed_bmds)
                         try:

@@ -20,7 +20,8 @@ from ui.screens import (
     regenerate_prompt_screen,
     reset_password_screen,
     confirm_action_screen,
-    time_window_ended_screen
+    time_window_ended_screen,
+    custom_rfid_reader_screen
 )
 import subprocess
 import requests
@@ -456,6 +457,72 @@ def main():
                                 else:
                                     status_screen(app, "PARTIAL FAIL", "Archived local logs, but server fetch failed.", fg="red", delay=3000, on_done=flow)
                                 return
+                    elif action == "CUSTOM_READER":
+                        # Initialize reader
+                        log_cb, result_cb, exit_checker = custom_rfid_reader_screen(app)
+                        
+                        reader = None
+                        if not MOCK_RFID:
+                            try:
+                                from hardware.rfid_reader import RFIDFullReader
+                                reader = RFIDFullReader()
+                            except Exception as e:
+                                log_cb(f"HARDWARE ERROR: {e}")
+                        
+                        import time
+                        while not exit_checker() and not app.exit_requested:
+                            if MOCK_RFID:
+                                log_cb("Status: (MOCK) Waiting for card...")
+                                time.sleep(1.0)
+                                if exit_checker(): break
+                                
+                                log_cb("Status: (MOCK) Card detected")
+                                time.sleep(0.5)
+                                try:
+                                    if os.path.exists("mock_rfid.txt"):
+                                        with open("mock_rfid.txt", "r") as f:
+                                            mock_data = f.read()
+                                        for i in range(4, 26):
+                                            if (i+1)%4 == 0:
+                                                log_cb(f"Block {i}: Trailer (Skip)")
+                                            else:
+                                                log_cb(f"Block {i}: (MOCK) SUCCESS")
+                                                time.sleep(0.05)
+                                        result_cb(mock_data)
+                                        log_cb("Status: (MOCK) READ COMPLETE")
+                                    else:
+                                        log_cb("Error: mock_rfid.txt not found")
+                                except Exception as e:
+                                    log_cb(f"Error: {e}")
+                                
+                                # Wait before next poll or exit
+                                start_wait = time.time()
+                                while time.time() - start_wait < 3.0 and not exit_checker():
+                                    app.root.update()
+                                    time.sleep(0.1)
+                            else:
+                                if reader:
+                                    res = reader.read_full_string(status_cb=log_cb)
+                                    if res:
+                                        result_cb(res)
+                                        log_cb("Status: READ COMPLETE")
+                                        # Wait a bit so user can see completion
+                                        start_wait = time.time()
+                                        while time.time() - start_wait < 5.0 and not exit_checker():
+                                            app.root.update()
+                                            time.sleep(0.1)
+                                    else:
+                                        # Small delay before retry
+                                        time.sleep(0.5)
+                                else:
+                                    log_cb("HARDWARE NOT INITIALIZED")
+                                    time.sleep(1.0)
+                            
+                            app.root.update()
+                            time.sleep(0.05)
+                        
+                        if reader: reader.close()
+                        # Continue in the admin loop after exiting reader
             else:
                 status_screen(app, "ACCESS DENIED", "Incorrect password", fg="red", delay=2000, on_done=flow)
             return

@@ -12,6 +12,7 @@ server_end/regeneration_audit.log
 *.p12
 Electoral_Roll.csv
 Electoral_Roll_1.csv
+Electoral_Roll_2.csv
 voters.json
 device_id.txt
 admin_sec.json
@@ -21,3 +22,4 @@ dumped_images/
 mock_rfid.txt
 allowed_bmds.json
 admin_credentials.json
+evoting/

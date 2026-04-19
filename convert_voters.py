@@ -34,7 +34,7 @@ INPUT_JSON_DATA = """
 ]
 """
 
-OUTPUT_CSV_FILE = "Electoral_Roll_1.csv"
+OUTPUT_CSV_FILE = "Electoral_Roll_2.csv"
 
 # ─── Load data ───────────────────────────────────────────────────────────────
 

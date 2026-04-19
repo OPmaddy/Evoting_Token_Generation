@@ -510,6 +510,7 @@ def admin_dashboard_screen(app):
     _styled_button(btn_frame, "RE-INITIALIZE ELECTIONS", on_reinit, bg=ERROR_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "FIRMWARE UPDATE", on_fw_update, bg=WARNING_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "SET ALLOWED BMDS", on_set_bmds, bg=ACCENT_COLOR).pack(pady=5, fill="x")
+    _styled_button(btn_frame, "CUSTOM READER", lambda: result.update({"action": "CUSTOM_READER"}), bg=ACCENT_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "REGENERATE TOKEN", on_regenerate, bg=WARNING_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "RESET PASSWORD", on_reset_pwd, bg=FG_SECONDARY).pack(pady=5, fill="x")
     _styled_button(btn_frame, "EXIT ADMIN MENU", on_exit, bg=FG_SECONDARY).pack(pady=10, fill="x")
@@ -798,6 +799,64 @@ def time_window_ended_screen(app):
     btn_frame.pack(pady=30)
     
     def on_extend(): result["action"] = "EXTEND"
+
+# ---------------- CUSTOM RFID READER ---------------- #
+
+def custom_rfid_reader_screen(app):
+    app.clear()
+    
+    # We use a container that allows the scrollable log and results
+    frame = tk.Frame(app.container, bg=BG_COLOR)
+    frame.place(relheight=1, relwidth=1)
+
+    tk.Label(frame, text="CUSTOM RFID READER",
+             fg=ACCENT_COLOR, bg=BG_COLOR, font=("Segoe UI", 24, "bold")).pack(pady=(10, 5))
+
+    # Log/Status Area
+    log_frame = tk.Frame(frame, bg="#1e1e1e", bd=2, relief="sunken")
+    log_frame.pack(fill="both", expand=True, padx=20, pady=5)
+
+    log_text = tk.Text(log_frame, bg="#1e1e1e", fg="#33ff33", font=("Consolas", 10),
+                      state="disabled", wrap="word", height=10)
+    log_text.pack(side="left", fill="both", expand=True)
+
+    scrollbar = tk.Scrollbar(log_frame, command=log_text.yview)
+    scrollbar.pack(side="right", fill="y")
+    log_text.config(yscrollcommand=scrollbar.set)
+
+    def write_log(msg):
+        log_text.config(state="normal")
+        log_text.insert(tk.END, msg + "\n")
+        log_text.see(tk.END)
+        log_text.config(state="disabled")
+        app.root.update()
+
+    # Result Area
+    result_label = tk.Label(frame, text="RESULT STRING:", fg=FG_SECONDARY, bg=BG_COLOR, font=("Segoe UI", 10, "bold"))
+    result_label.pack(pady=(10, 0))
+
+    result_box = tk.Text(frame, bg="#ffffff", fg="#000000", font=("Segoe UI", 10),
+                        height=4, wrap="char")
+    result_box.pack(fill="x", padx=20, pady=5)
+    result_box.config(state="disabled")
+
+    def show_result(text):
+        result_box.config(state="normal")
+        result_box.delete("1.0", tk.END)
+        result_box.insert(tk.END, text)
+        result_box.config(state="disabled")
+        app.root.update()
+
+    # Controls
+    btn_frame = tk.Frame(frame, bg=BG_COLOR)
+    btn_frame.pack(pady=10)
+
+    exit_requested = [False]
+    def on_exit(): exit_requested[0] = True
+
+    _styled_button(btn_frame, "EXIT READER", on_exit, bg=FG_SECONDARY).pack()
+
+    return write_log, show_result, lambda: exit_requested[0]
     def on_end(): result["action"] = "END"
     def on_samurai(): result["action"] = "SAMURAI_UNLOCK"
 

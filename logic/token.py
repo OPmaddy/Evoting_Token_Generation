@@ -1,10 +1,7 @@
-import uuid
+import os
 import json
 import base64
-from datetime import datetime
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # ------------------ BOOTH ------------------
 def assign_booth(entry_number: str, eid_vector: str, allowed_bmds: list) -> int:
@@ -18,33 +15,47 @@ def build_token_payload(
     booth: int
 ) -> dict:
     """
-    Plain payload BEFORE encryption.
+    Minimalist payload optimized for space.
+    v: voter_id
+    e: eid_vector
+    b: booth
     """
     return {
-        "token_id": str(uuid.uuid4()),
-        "voter_id": entry_number,
-        "eid_vector": eid_vector,
-        "booth": booth,
-        "issued_at": datetime.now().isoformat()
+        "v": entry_number,
+        "e": eid_vector,
+        "b": booth
     }
 
-def encrypt_payload(payload: dict, public_key_pem: str) -> str:
+def encrypt_payload_aes(payload: dict, key_hex: str) -> str:
     """
-    Returns encrypted string (base64-safe) using RSA.
+    Returns encrypted string (base64) using AES-256-GCM.
+    Format: nonce(12) + tag(16) + ciphertext
     """
-    public_key = serialization.load_pem_public_key(
-        public_key_pem.encode('utf-8')
-    )
-
-    plaintext = json.dumps(payload, separators=(",", ":")).encode('utf-8')
+    key = bytes.fromhex(key_hex)
+    aesgcm = AESGCM(key)
+    nonce = os.urandom(12)
     
-    ciphertext = public_key.encrypt(
-        plaintext,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
+    plaintext = json.dumps(payload, separators=(",", ":")).encode('utf-8')
+    ciphertext = aesgcm.encrypt(nonce, plaintext, None)
+    
+    # nonce + ciphertext (which contains the 16-byte tag at the end in cryptography's impl)
+    combined = nonce + ciphertext
+    return base64.b64encode(combined).decode("utf-8")
 
-    return base64.b64encode(ciphertext).decode("utf-8")
+def decrypt_payload_aes(ciphertext_b64: str, key_hex: str) -> dict:
+    """
+    Decrypts the AES-GCM payload.
+    """
+    try:
+        key = bytes.fromhex(key_hex)
+        aesgcm = AESGCM(key)
+        data = base64.b64decode(ciphertext_b64)
+        
+        nonce = data[:12]
+        ciphertext = data[12:]
+        
+        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+        return json.loads(plaintext.decode('utf-8'))
+    except Exception as e:
+        print(f"Decryption error: {e}")
+        return None

@@ -798,7 +798,41 @@ def time_window_ended_screen(app):
     btn_frame = tk.Frame(frame, bg=BG_COLOR)
     btn_frame.pack(pady=30)
     
-    def on_extend(): result["action"] = "EXTEND"
+    def on_samurai(): result["action"] = "SAMURAI_UNLOCK"
+
+    _styled_button(btn_frame, "ADMIN ACCESS", on_samurai, bg=WARNING_COLOR).pack(pady=10)
+
+    import time
+    while result["action"] is None and not app.exit_requested:
+        app.root.update()
+        time.sleep(0.05)
+
+    if result["action"] == "SAMURAI_UNLOCK":
+        # Prompt for password from admins 
+        pwd = password_prompt_screen(app)
+        # Verify pwd upstream, but we will return what they want to do
+        app.clear()
+        f2 = _center_frame(app)
+        tk.Label(f2, text="ADMIN OVERRIDE", fg=ACCENT_COLOR, bg=BG_COLOR, font=FONT_LARGE).pack(pady=20)
+        bf = tk.Frame(f2, bg=BG_COLOR)
+        bf.pack(pady=20)
+        
+        inner_res = {"choice": None}
+        def ch_ext(): inner_res["choice"] = "EXTEND_ELECTION"
+        def ch_end(): inner_res["choice"] = "END_ELECTION"
+        def ch_cancel(): inner_res["choice"] = "CANCEL"
+        
+        _styled_button(bf, "EXTEND ELECTION", ch_ext, bg=SUCCESS_COLOR).pack(side="left", padx=10)
+        _styled_button(bf, "END ELECTION", ch_end, bg=ERROR_COLOR).pack(side="left", padx=10)
+        _styled_button(bf, "CANCEL", ch_cancel, bg=FG_SECONDARY).pack(side="left", padx=10)
+        
+        while inner_res["choice"] is None and not app.exit_requested:
+            app.root.update()
+            time.sleep(0.05)
+            
+        return inner_res["choice"], pwd
+
+    return None, None
 
 # ---------------- CUSTOM RFID READER ---------------- #
 
@@ -857,37 +891,3 @@ def custom_rfid_reader_screen(app):
     _styled_button(btn_frame, "EXIT READER", on_exit, bg=FG_SECONDARY).pack()
 
     return write_log, show_result, lambda: exit_requested[0]
-    def on_end(): result["action"] = "END"
-    def on_samurai(): result["action"] = "SAMURAI_UNLOCK"
-
-    _styled_button(btn_frame, "ADMIN ACCESS", on_samurai, bg=WARNING_COLOR).pack(pady=10)
-
-    import time
-    while result["action"] is None and not app.exit_requested:
-        app.root.update()
-        time.sleep(0.05)
-
-    if result["action"] == "SAMURAI_UNLOCK":
-        # Prompt for password from admins 
-        pwd = password_prompt_screen(app)
-        # Verify pwd upstream, but we will return what they want to do
-        app.clear()
-        f2 = _center_frame(app)
-        tk.Label(f2, text="ADMIN OVERRIDE", fg=ACCENT_COLOR, bg=BG_COLOR, font=FONT_LARGE).pack(pady=20)
-        bf = tk.Frame(f2, bg=BG_COLOR)
-        bf.pack(pady=20)
-        
-        inner_res = {"choice": None}
-        def ch_ext(): inner_res["choice"] = "EXTEND_ELECTION"
-        def ch_end(): inner_res["choice"] = "END_ELECTION"
-        
-        _styled_button(bf, "EXTEND ELECTION", ch_ext, bg=SUCCESS_COLOR).pack(side="left", padx=10)
-        _styled_button(bf, "END ELECTION", ch_end, bg=ERROR_COLOR).pack(side="left", padx=10)
-        
-        while inner_res["choice"] is None and not app.exit_requested:
-            app.root.update()
-            time.sleep(0.05)
-            
-        return inner_res["choice"], pwd
-
-    return None, None

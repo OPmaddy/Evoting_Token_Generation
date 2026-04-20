@@ -34,7 +34,8 @@ from logic.voter import VoterDB
 from logic.token import (
     assign_booth,
     build_token_payload,
-    encrypt_payload
+    encrypt_payload_aes,
+    decrypt_payload_aes
 )
 
 # --- Early bypass-face detection (before importing heavy face libraries) ---
@@ -111,11 +112,11 @@ def main():
         with open(bmd_keys_path, "r") as f:
             bk_data = json.load(f)
         app.num_booths = bk_data.get("num_booths", 2)
-        app.booth_keys = bk_data.get("keys", {})
+        app.aes_key = bk_data.get("aes_key", "632af6d3184f4f3460e42d76587c6722d56a7c9360824699564f89d0f4d36ef5")
     else:
         app.num_booths = 2
-        app.booth_keys = {}
-        print("Warning: bmd_keys.json not found. Token encryption may fail.")
+        app.aes_key = "632af6d3184f4f3460e42d76587c6722d56a7c9360824699564f89d0f4d36ef5"
+        print("Warning: bmd_keys.json not found. Using default AES key.")
 
     # Load Device ID
     app.device_id = "1"
@@ -451,7 +452,7 @@ def main():
                                         with open("bmd_keys.json", "r") as f:
                                             _bk_data = json.load(f)
                                         app.num_booths = _bk_data.get("num_booths", 2)
-                                        app.booth_keys = _bk_data.get("keys", {})
+                                        app.aes_key = _bk_data.get("aes_key", "632af6d3184f4f3460e42d76587c6722d56a7c9360824699564f89d0f4d36ef5")
                                         
                                     status_screen(app, "SUCCESS", "Elections Re-Initialized.\nRebooting...", fg="green", delay=3000, on_done=reboot_system)
                                 else:
@@ -488,7 +489,15 @@ def main():
                                             else:
                                                 log_cb(f"Block {i}: (MOCK) SUCCESS")
                                                 time.sleep(0.05)
-                                        result_cb(mock_data)
+                                        
+                                        log_cb("Status: Decrypting payload...")
+                                        decrypted = decrypt_payload_aes(mock_data, app.aes_key)
+                                        if decrypted:
+                                            res_text = f"DECRYPTED PAYLOAD:\n{json.dumps(decrypted, indent=2)}\n\nRAW:\n{mock_data}"
+                                            result_cb(res_text)
+                                        else:
+                                            result_cb(f"DECRYPTION FAILED\n\nRAW:\n{mock_data}")
+                                            
                                         log_cb("Status: (MOCK) READ COMPLETE")
                                     else:
                                         log_cb("Error: mock_rfid.txt not found")
@@ -504,7 +513,14 @@ def main():
                                 if reader:
                                     res = reader.read_full_string(status_cb=log_cb)
                                     if res:
-                                        result_cb(res)
+                                        log_cb("Status: Decrypting payload...")
+                                        decrypted = decrypt_payload_aes(res, app.aes_key)
+                                        if decrypted:
+                                            res_text = f"DECRYPTED PAYLOAD:\n{json.dumps(decrypted, indent=2)}\n\nRAW:\n{res}"
+                                            result_cb(res_text)
+                                        else:
+                                            result_cb(f"DECRYPTION FAILED\n\nRAW:\n{res}")
+                                            
                                         log_cb("Status: READ COMPLETE")
                                         # Wait a bit so user can see completion
                                         start_wait = time.time()
@@ -687,15 +703,8 @@ def main():
         booth = assign_booth(entry, voter["EID_Vector"], app.allowed_bmds)
         payload = build_token_payload(entry, voter["EID_Vector"], booth)
         
-        booth_str = str(booth)
-        if booth_str not in app.booth_keys:
-            status_screen(app, "SYSTEM ERROR", 
-                          f"Public key for Booth {booth} not found.\nPlease contact Administrator.",
-                          fg="red", on_done=flow)
-            return
-            
-        public_key_pem = app.booth_keys[booth_str]
-        encrypted = encrypt_payload(payload, public_key_pem)
+        # Encrypt using SHARED AES KEY
+        encrypted = encrypt_payload_aes(payload, app.aes_key)
 
         def rfid_cb(msg):
             rfid_status_screen(app, msg)

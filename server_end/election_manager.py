@@ -247,6 +247,13 @@ class ElectionManager:
             print("Failed to send SIGHUP to Gunicorn:", e)
 
 
+        # Ensure BMD Keys contain the shared AES key
+        if "aes_key" not in election_config.get("bmd_keys", {}):
+            print("Warning: aes_key not found in bmd_keys. Using default key.")
+            if "bmd_keys" not in election_config:
+                election_config["bmd_keys"] = {}
+            election_config["bmd_keys"]["aes_key"] = "632af6d3184f4f3460e42d76587c6722d56a7c9360824699564f89d0f4d36ef5"
+
         # 4. Save state
         self.state["active_election"] = True
         self.state["active_election_name"] = election_config.get("election_name", "Untitled")

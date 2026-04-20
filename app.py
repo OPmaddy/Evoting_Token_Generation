@@ -787,11 +787,15 @@ def main():
                               fg="red", on_done=flow)
                 return
 
+            # Metadata for audit (Not in RFID payload to save space)
+            token_id = str(uuid.uuid4())
+            issued_at = datetime.datetime.now().isoformat()
+
             # Save full audit record to LOCAL SQLite (images, timestamps)
             app.voter_db.stage_token(
                 entry_number=entry,
-                token_id=payload["token_id"],
-                issued_at=payload["issued_at"],
+                token_id=token_id,
+                issued_at=issued_at,
                 img1=images[0] if len(images) > 0 else None,
                 img2=images[1] if len(images) > 1 else None,
                 booth=booth
@@ -800,7 +804,7 @@ def main():
             # Notify central server that generation succeeded (sync)
             app.voter_db.confirm_token(
                 entry_number=entry,
-                token_id=payload["token_id"],
+                token_id=token_id,
                 booth=booth
             )
 

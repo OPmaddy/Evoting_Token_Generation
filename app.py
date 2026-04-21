@@ -597,6 +597,8 @@ def main():
         emb_path = os.path.join(EMBEDDINGS_DIR, f"{entry}.npy")
             
         if not os.path.exists(emb_path):
+            # Lock must be released — no biometric data means we cannot proceed
+            app.voter_db.cancel_token(entry)
             status_screen(
                 app,
                 "SYSTEM ERROR",
@@ -606,7 +608,18 @@ def main():
             )
             return
 
-        stored_embedding = np.load(emb_path)
+        try:
+            stored_embedding = np.load(emb_path)
+        except Exception as e:
+            app.voter_db.cancel_token(entry)
+            status_screen(
+                app,
+                "SYSTEM ERROR",
+                f"Failed to load biometric data for this voter.\nError: {e}\nPlease contact the System Administrator.",
+                fg="red",
+                on_done=flow
+            )
+            return
 
         verification_progress_screen(
             app,
@@ -698,6 +711,8 @@ def main():
         )
     def finalize(entry, voter, images):
         if not app.allowed_bmds:
+            # Lock must be released — voter was already claimed on the server
+            app.voter_db.cancel_token(entry)
             status_screen(app, "SYSTEM ERROR", "No BMDs are currently allowed.\nAdmin must configure BMDs.", fg="red", on_done=flow)
             return
 
@@ -719,9 +734,14 @@ def main():
             try:
                 writer = RFIDTokenWriter(start_block=4)
             except Exception as e:
+                # Hardware init failed — release the server lock immediately
+                app.voter_db.cancel_token(entry)
                 status_screen(app, "HARDWARE ERROR", f"RFID initialization failed: {e}", fg="red", on_done=flow)
                 return
 
+        # _confirmed tracks whether we successfully confirmed with the server.
+        # Used by the catch-all exception handler below to decide if cancel is needed.
+        _confirmed = False
         try:
             while rfid_attempt < max_rfid_attempts and not write_success:
                 rfid_attempt += 1
@@ -780,15 +800,15 @@ def main():
                         break
 
             if not write_success:
-                # Release the lock on the central server
+                # All RFID attempts exhausted / operator chose exit — release server lock
                 app.voter_db.cancel_token(entry)
-
                 status_screen(app, "CARD ERROR",
                               "Failed to write voting token to the Smart Card.\nPlease retry or replace the card.", 
                               fg="red", on_done=flow)
                 return
 
-            # Metadata for audit (Not in RFID payload to save space)
+            # ── RFID write succeeded ──────────────────────────────────────────
+            # Metadata for audit (not in RFID payload to save space)
             token_id = str(uuid.uuid4())
             issued_at = datetime.datetime.now().isoformat()
 
@@ -802,14 +822,63 @@ def main():
                 booth=booth
             )
 
-            # Notify central server that generation succeeded (sync)
-            app.voter_db.confirm_token(
-                entry_number=entry,
-                token_id=token_id,
-                booth=booth
-            )
+            # ── Confirm with central server — BLOCKING RETRY ──────────────────
+            # The RFID card is already written. The voter has their token.
+            # We MUST confirm with the server so no other device can re-issue
+            # a token for this voter. We block here until the server accepts.
+            # The voter's status on the server remains "requested_by_device_<X>"
+            # during this window, which prevents any other device from claiming them.
+            import time as _time
+            confirm_attempt = 0
+            while True:
+                confirm_attempt += 1
+                ok = app.voter_db.confirm_token(
+                    entry_number=entry,
+                    token_id=token_id,
+                    booth=booth
+                )
+                if ok:
+                    _confirmed = True
+                    print(f"[confirm_token] Success on attempt {confirm_attempt} for {entry}")
+                    break
+
+                # Server rejected or unreachable — log and retry.
+                # The voter's smart card is already written — they CAN vote.
+                # Instruct operator accordingly while we keep retrying.
+                print(f"[confirm_token] FAILED attempt {confirm_attempt} for entry {entry}. "
+                      f"Retrying in 5s. Voter directed to Booth {booth}.")
+                status_screen(
+                    app,
+                    f"PROCEED TO BOOTH {booth}",
+                    f"\u2705 Smart card written successfully.\n"
+                    f"Voter may proceed to BOOTH {booth} to cast their vote.\n\n"
+                    f"[Syncing with server — attempt {confirm_attempt}]\n"
+                    f"This device will retry automatically. Do not turn off.",
+                    fg="orange"
+                )
+                app.root.update()
+                _time.sleep(5)
 
             booth_confirmation_screen(app, booth, on_done=flow)
+
+        except Exception as e:
+            # Catch-all: any unexpected exception in finalize() must not leave
+            # the server lock held, unless we already confirmed successfully.
+            if not _confirmed:
+                print(f"[CRITICAL] Unexpected exception in finalize() for {entry}: {e}")
+                app.voter_db.cancel_token(entry)
+                status_screen(
+                    app,
+                    "UNEXPECTED ERROR",
+                    f"An unexpected error occurred during token generation.\n"
+                    f"The voter lock has been released.\nError: {e}\n"
+                    f"Please inform the System Administrator.",
+                    fg="red",
+                    on_done=flow
+                )
+            else:
+                # Confirmed — just log, don't cancel.
+                print(f"[WARNING] Exception after confirmed confirm_token for {entry}: {e}")
         finally:
             if writer is not None:
                 writer.close()

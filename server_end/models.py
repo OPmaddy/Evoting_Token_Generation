@@ -14,15 +14,28 @@ Voter document schema:
     "requested_at": str | None,  # ISO timestamp when request was made
     "generated_at": str | None   # ISO timestamp when token was generated
 }
+
+Lock lifecycle
+--------------
+not_generated  ──request_token()──►  requested_by_device_<X>
+                                          │
+                         ┌────────────────┴──────────────────┐
+               confirm_token()                          cancel_token()
+                          │                                   │
+             generated_at_device_<X>               not_generated
+
+Stale locks ("requested_by_device_*" that never resolved) are NOT auto-cleared
+by this module.  They must be resolved by an admin using the regenerate flow
+or cancel flow.  This eliminates the race condition where a passive GET could
+silently steal a live device's lock.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pymongo import MongoClient, ReturnDocument
 from config import (
     MONGO_URI,
     MONGO_DB_NAME,
     MONGO_COLLECTION,
-    STALE_REQUEST_TIMEOUT_SECONDS,
 )
 
 
@@ -39,53 +52,6 @@ class VoterCollection:
 
     # ── helpers ────────────────────────────────────────────────────────────
 
-    def _revert_if_stale(self, doc: dict) -> dict:
-        """
-        If a document is in a "requested_by_device_*" state and the request
-        timestamp exceeds the configured timeout, atomically revert it to
-        "not_generated" and return the updated document.
-        """
-        if doc is None:
-            return None
-
-        status = doc.get("status", "")
-        if not status.startswith("requested_by_device_"):
-            return doc
-
-        requested_at_str = doc.get("requested_at")
-        if requested_at_str is None:
-            return doc
-
-        try:
-            requested_at = datetime.fromisoformat(requested_at_str)
-            # Make offset-aware if naive
-            if requested_at.tzinfo is None:
-                requested_at = requested_at.replace(tzinfo=timezone.utc)
-        except (ValueError, TypeError):
-            return doc
-
-        now = datetime.now(timezone.utc)
-        if (now - requested_at) > timedelta(seconds=STALE_REQUEST_TIMEOUT_SECONDS):
-            # Atomically revert — only if status hasn't changed since we read it
-            reverted = self.collection.find_one_and_update(
-                {
-                    "entry_number": doc["entry_number"],
-                    "status": status,
-                },
-                {
-                    "$set": {
-                        "status": "not_generated",
-                        "device_id": None,
-                        "requested_at": None,
-                    }
-                },
-                return_document=ReturnDocument.AFTER,
-            )
-            if reverted is not None:
-                return reverted
-
-        return doc
-
     @staticmethod
     def _serialize(doc: dict) -> dict:
         """Remove the internal MongoDB _id for JSON-safe output."""
@@ -98,20 +64,27 @@ class VoterCollection:
     # ── public API ─────────────────────────────────────────────────────────
 
     def get_voter(self, entry_number: str) -> dict | None:
-        """Look up a voter by entry number (case-insensitive)."""
+        """
+        Look up a voter by entry number (case-insensitive).
+
+        Intentionally a pure read — does NOT modify the document.
+        Stale lock detection is left to the admin/regenerate flow.
+        """
         doc = self.collection.find_one(
             {"entry_number": {"$regex": f"^{entry_number}$", "$options": "i"}}
         )
-        doc = self._revert_if_stale(doc)
         return self._serialize(doc)
 
     def request_token(self, entry_number: str, device_id: str) -> dict | None:
         """
         Atomically claim a voter for token generation.
 
-        Succeeds only if the current status is "not_generated".
-        Returns the updated document on success, or None if the voter
-        could not be claimed (already requested / already generated / not found).
+        Succeeds ONLY if the current status is exactly "not_generated".
+        Any other state (in-progress on another device, already generated)
+        returns None so the caller gets a 409.
+
+        The MongoDB find_one_and_update is atomic at the document level,
+        so two simultaneous requests for the same voter cannot both succeed.
         """
         now = datetime.now(timezone.utc).isoformat()
         doc = self.collection.find_one_and_update(
@@ -141,6 +114,7 @@ class VoterCollection:
         Mark a voter's token as successfully generated.
 
         Succeeds only if the current status is "requested_by_device_<device_id>".
+        Returns None if the voter is not in the expected state for this device.
         """
         now = datetime.now(timezone.utc).isoformat()
         doc = self.collection.find_one_and_update(
@@ -163,9 +137,11 @@ class VoterCollection:
 
     def cancel_token(self, entry_number: str, device_id: str) -> dict | None:
         """
-        Release a token request back to "not_generated" (e.g. face verification failed).
+        Release a token request back to "not_generated".
 
         Succeeds only if the current status is "requested_by_device_<device_id>".
+        This is safe to call on any error path — if the status has already
+        changed (e.g. another admin action ran), it returns None silently.
         """
         doc = self.collection.find_one_and_update(
             {
@@ -186,15 +162,23 @@ class VoterCollection:
     def regenerate_token(self, entry_number: str, device_id: str) -> dict | None:
         """
         Force a voter into a requested state regardless of current status.
-        Logs the previous state to an append-only file.
+        Used by admins to unlock a stuck voter (stale lock, hardware failure, etc.).
+        Logs the previous state to an append-only audit file.
         """
-        existing = self.collection.find_one({"entry_number": {"$regex": f"^{entry_number}$", "$options": "i"}})
+        import os
+        existing = self.collection.find_one(
+            {"entry_number": {"$regex": f"^{entry_number}$", "$options": "i"}}
+        )
         if existing:
-            # Audit log
-            # Use absolute path to the server_end directory so the log is created there
-            import os
             log_path = os.path.join(os.path.dirname(__file__), "regeneration_audit.log")
-            log_line = f"[{datetime.now(timezone.utc).isoformat()}] REGENERATE TRIGGERED FOR {entry_number} | Old Status: {existing.get('status')} | Old Device: {existing.get('device_id')} | Old Token ID: {existing.get('token_id')} | Old Requested At: {existing.get('requested_at')} | Old Generated At: {existing.get('generated_at')}\n"
+            log_line = (
+                f"[{datetime.now(timezone.utc).isoformat()}] REGENERATE TRIGGERED FOR {entry_number} "
+                f"| Old Status: {existing.get('status')} "
+                f"| Old Device: {existing.get('device_id')} "
+                f"| Old Token ID: {existing.get('token_id')} "
+                f"| Old Requested At: {existing.get('requested_at')} "
+                f"| Old Generated At: {existing.get('generated_at')}\n"
+            )
             with open(log_path, "a") as f:
                 f.write(log_line)
 
@@ -216,11 +200,9 @@ class VoterCollection:
         return self._serialize(doc)
 
     def get_all_voters(self) -> list[dict]:
-        """Return all voter documents (admin)."""
+        """
+        Return all voter documents (admin).
+        Pure read — does not modify any documents.
+        """
         docs = list(self.collection.find())
-        # Revert stale entries on the fly
-        results = []
-        for doc in docs:
-            doc = self._revert_if_stale(doc)
-            results.append(self._serialize(doc))
-        return results
+        return [self._serialize(doc) for doc in docs]

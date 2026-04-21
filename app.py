@@ -812,6 +812,11 @@ def main():
             token_id = str(uuid.uuid4())
             issued_at = datetime.datetime.now().isoformat()
 
+            # Promote safety-cancel → pending-confirm in the journal.
+            # From this point on, a reboot will replay a confirm (not a cancel)
+            # because the card is already written.
+            app.voter_db.mark_rfid_written(entry, token_id, booth)
+
             # Save full audit record to LOCAL SQLite (images, timestamps)
             app.voter_db.stage_token(
                 entry_number=entry,
@@ -882,6 +887,79 @@ def main():
         finally:
             if writer is not None:
                 writer.close()
+
+    def replay_unsynced_requests():
+        """
+        On startup, replay any critical pending requests before the normal
+        voter flow begins.  Blocks until every pending entry is resolved.
+
+        Priority: confirms first (RFID already written), then cancels.
+        """
+        import time as _t
+        pending = app.voter_db.journal.get_pending()
+        if not pending:
+            return
+
+        print(f"[STARTUP] {len(pending)} unsynced request(s) found — replaying before normal flow...")
+
+        for item in pending:
+            entry_number = item["entry_number"]
+            req_type     = item["type"]
+            attempt      = 0
+
+            while True:
+                if app.exit_requested:
+                    return
+
+                attempt += 1
+                app.voter_db.journal.increment_attempts(item["id"])
+
+                if req_type == "confirm":
+                    token_id = item.get("token_id")
+                    booth    = item.get("booth")
+                    status_screen(
+                        app,
+                        "STARTUP — SYNCING",
+                        f"Replaying pending CONFIRM for voter {entry_number}\n"
+                        f"Booth {booth} | Attempt {attempt}\n\n"
+                        f"Please wait — do not turn off the device.",
+                        fg="orange"
+                    )
+                    app.root.update()
+                    ok = app.voter_db.confirm_token(entry_number, token_id, booth)
+                else:  # cancel
+                    status_screen(
+                        app,
+                        "STARTUP — SYNCING",
+                        f"Replaying pending CANCEL for voter {entry_number}\n"
+                        f"Attempt {attempt}\n\n"
+                        f"Please wait — do not turn off the device.",
+                        fg="orange"
+                    )
+                    app.root.update()
+                    ok = app.voter_db.cancel_token(entry_number)
+
+                if ok:
+                    print(f"[STARTUP] {req_type.upper()} for {entry_number} succeeded on attempt {attempt}.")
+                    break
+
+                print(f"[STARTUP] {req_type.upper()} for {entry_number} FAILED (attempt {attempt}). Retrying in 5s...")
+                status_screen(
+                    app,
+                    "STARTUP — SYNC FAILED",
+                    f"Cannot reach server. Will retry in 5 seconds.\n"
+                    f"Pending: {req_type.upper()} for voter {entry_number}\n\n"
+                    f"Do not turn off the device.",
+                    fg="red"
+                )
+                app.root.update()
+                _t.sleep(5)
+
+        print("[STARTUP] All unsynced requests resolved. Starting normal flow.")
+
+    # Replay any unsynced critical requests from a previous run BEFORE
+    # the normal voter flow starts.
+    replay_unsynced_requests()
 
     app.root.after(100, flow)
     app.root.mainloop()

@@ -22,12 +22,49 @@ from werkzeug.utils import secure_filename
 from models import VoterCollection
 from election_manager import ElectionManager
 
-api = Blueprint("api", __name__, url_prefix="/api")
+api   = Blueprint("api",   __name__, url_prefix="/api")
 admin = Blueprint("admin", __name__, url_prefix="/admin")
 
 # Shared collection instance
-voters = VoterCollection()
+voters  = VoterCollection()
 manager = ElectionManager(os.path.dirname(__file__))
+
+# ─── Server Request Logger ──────────────────────────────────────────────────────────────────────
+
+_SERVER_LOG_DIR  = os.path.join(os.path.dirname(__file__), "logs")
+_SERVER_LOG_PATH = os.path.join(_SERVER_LOG_DIR, "server_requests.log")
+os.makedirs(_SERVER_LOG_DIR, exist_ok=True)
+
+
+def _log_server_request(response=None, error_msg: str = None):
+    """Append one line to server_requests.log and flush immediately."""
+    ts         = datetime.utcnow().isoformat() + "Z"
+    cn         = get_cert_cn() or "unknown"
+    method     = request.method
+    path       = request.path
+    status     = response.status_code if response is not None else "ERROR"
+    extra      = f" | {error_msg}" if error_msg else ""
+    # Extract voter entry_number from path if present  (/api/voter/<entry>/...)
+    parts      = path.strip("/").split("/")
+    voter_str  = ""
+    if len(parts) >= 3 and parts[1] == "voter":
+        voter_str = f" voter={parts[2]}"
+    line = f"[{ts}] device={cn} {method:4s} {path} → {status}{voter_str}{extra}\n"
+    try:
+        with open(_SERVER_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(line)
+            f.flush()
+            os.fsync(f.fileno())
+    except Exception as exc:
+        print(f"[LOG ERROR] Could not write to server_requests.log: {exc}")
+
+
+@api.after_request
+def log_api_request(response):
+    """Log every /api/* request with device identity and response code."""
+    _log_server_request(response)
+    return response
+
 
 # ─── Security Helpers ──────────────────────────────────────────────────────────
 

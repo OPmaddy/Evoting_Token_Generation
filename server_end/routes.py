@@ -449,12 +449,16 @@ def change_password():
 
 @admin.route("/dashboard")
 def dashboard():
+    if not manager.state.get("active_election"):
+        flash("Live Report is only available during an active election.", "warning")
+        return redirect(url_for("admin.index"))
+
     num_booths = manager.get_num_booths()
     all_booths = list(range(1, num_booths + 1))
     stats      = voters.get_booth_occupancy(all_booths)
     return render_template(
         "dashboard.html",
-        election_active=manager.state.get("active_election"),
+        election_active=True,
         master_update_required=manager.state.get("master_update_required"),
         devices=manager.state.get("devices", {}),
         bmd_mapping=manager.get_bmd_mapping(),
@@ -467,6 +471,10 @@ def dashboard():
 @admin.route("/bmd_mapping", methods=["GET", "POST"])
 def bmd_mapping():
     """Live BMD mapping editor — change which booths each device can use."""
+    if not manager.state.get("active_election"):
+        flash("BMD Control is only available during an active election.", "warning")
+        return redirect(url_for("admin.index"))
+
     if request.method == "POST":
         devices_cfg = manager.state.get("devices", {})
         num_booths  = manager.get_num_booths()

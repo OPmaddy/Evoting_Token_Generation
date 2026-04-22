@@ -342,6 +342,10 @@ class ElectionManager:
         new_state = self.state
         new_state["active_election"] = False
         self._save_state(new_state)
+
+        # Clear voters after archiving to refresh lifetime stats for next election
+        voters_db.collection.delete_many({})
+        
         return True
 
     def update_device_status(self, device_id, status_key, value):

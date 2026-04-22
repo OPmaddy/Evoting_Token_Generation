@@ -272,7 +272,7 @@ class ElectionManager:
         new_state = self.state
         new_state["active_election"] = True
         new_state["active_election_name"] = election_config.get("election_name", "Untitled")
-        new_state["master_update_required"] = new_state.get("master_update_required", False) 
+        new_state["master_update_required"] = False  # Reset on new election
         new_state["config"] = election_config
         new_state["devices"] = {str(i): {"provisioned": False, "last_active": None, "logs_uploaded": False} for i in range(1, num_tgens + 1)}
         self._save_state(new_state)

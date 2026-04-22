@@ -540,10 +540,6 @@ def init_election():
         }
 
         manager.start_election(e_roll.read(), num_tgens, election_config)
-        # Clear the update required flag on new election start if you wish, 
-        # or keep it until dismissed. Let's keep it until start.
-        manager.state["master_update_required"] = False
-        manager._save_state()
         return redirect(url_for("admin.dashboard"))
 
     return render_template("init_election.html")

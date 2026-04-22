@@ -174,35 +174,53 @@ def get_voter(entry_number: str):
 def request_token(entry_number: str):
     """
     A device requests permission to generate a token for this voter.
+    The server atomically claims the voter AND allots the least-occupied
+    booth from the device's allowed BMD list.
 
     Body: { "device_id": "1" }
-
-    Returns 200 on success, 409 if voter is already claimed/generated, 404 if
-    voter does not exist.
+    Returns 200 with { voter, booth_number } on success.
     """
-    data = request.get_json(silent=True) or {}
+    data      = request.get_json(silent=True) or {}
     device_id = data.get("device_id")
 
     if not device_id:
         return jsonify({"error": "device_id is required"}), 400
 
-    # Check if voter even exists first (for a better error message)
-    existing = voters.get_voter(entry_number)
-    if existing is None:
+    # Look up allowed booths for this device from live election config
+    allowed_booths = manager.get_bmd_mapping().get(str(device_id), [])
+    if not allowed_booths:
+        return jsonify({
+            "error": f"No booths configured for device {device_id}. Configure via Admin → BMD Control."
+        }), 400
+
+    # Confirm voter exists first (cleaner error message)
+    if voters.get_voter(entry_number) is None:
         return jsonify({"error": "Voter not found"}), 404
 
-    result = voters.request_token(entry_number, str(device_id))
+    result = voters.request_token(entry_number, str(device_id), allowed_booths)
     if result is None:
-        # Atomic claim failed → voter is already claimed or generated
+        current = voters.get_voter(entry_number)
         return jsonify({
             "error": "Token generation already in progress or completed for this voter",
-            "current_status": existing.get("status"),
+            "current_status": current.get("status") if current else "unknown",
         }), 409
 
     return jsonify({
-        "message": f"Token generation approved for device {device_id}",
-        "voter": result,
+        "message":      f"Token generation approved for device {device_id}",
+        "voter":        result,
+        "booth_number": result.get("booth_number"),
     }), 200
+
+
+# ─── Booth Occupancy (live dashboard polling) ─────────────────────────────────
+
+@api.route("/booth_occupancy", methods=["GET"])
+def booth_occupancy():
+    """Return time-decayed estimated occupancy per booth for the admin dashboard."""
+    num_booths = manager.get_num_booths()
+    all_booths = list(range(1, num_booths + 1))
+    occ = voters.get_booth_occupancy(all_booths)
+    return jsonify({"occupancy": occ, "num_booths": num_booths}), 200
 
 
 # ─── Confirm Token Generated ──────────────────────────────────────────────────
@@ -422,10 +440,44 @@ def change_password():
 
 @admin.route("/dashboard")
 def dashboard():
-    return render_template("dashboard.html", 
-                           election_active=manager.state.get("active_election"),
-                           master_update_required=manager.state.get("master_update_required"),
-                           devices=manager.state.get("devices", {}))
+    num_booths = manager.get_num_booths()
+    all_booths = list(range(1, num_booths + 1))
+    occupancy  = voters.get_booth_occupancy(all_booths)
+    return render_template(
+        "dashboard.html",
+        election_active=manager.state.get("active_election"),
+        master_update_required=manager.state.get("master_update_required"),
+        devices=manager.state.get("devices", {}),
+        bmd_mapping=manager.get_bmd_mapping(),
+        occupancy=occupancy,
+        all_booths=all_booths,
+    )
+
+
+@admin.route("/bmd_mapping", methods=["GET", "POST"])
+def bmd_mapping():
+    """Live BMD mapping editor — change which booths each device can use."""
+    if request.method == "POST":
+        devices_cfg = manager.state.get("devices", {})
+        num_booths  = manager.get_num_booths()
+        for device_id in devices_cfg:
+            key         = f"booths_{device_id}"
+            booth_vals  = request.form.getlist(key)  # list of str booth IDs
+            booth_ints  = [int(b) for b in booth_vals if b.isdigit()]
+            manager.update_bmd_mapping(device_id, booth_ints)
+        flash("BMD mapping updated successfully.", "success")
+        return redirect(url_for("admin.bmd_mapping"))
+
+    num_booths  = manager.get_num_booths()
+    all_booths  = list(range(1, num_booths + 1))
+    occupancy   = voters.get_booth_occupancy(all_booths)
+    return render_template(
+        "bmd_mapping.html",
+        devices=manager.state.get("devices", {}),
+        bmd_mapping=manager.get_bmd_mapping(),
+        all_booths=all_booths,
+        occupancy=occupancy,
+    )
 
 @admin.route("/init", methods=["GET", "POST"])
 def init_election():

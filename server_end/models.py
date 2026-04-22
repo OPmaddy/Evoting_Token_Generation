@@ -37,6 +37,9 @@ from config import (
     MONGO_DB_NAME,
     MONGO_COLLECTION,
 )
+import random
+import os
+import math
 
 
 class VoterCollection:
@@ -61,32 +64,140 @@ class VoterCollection:
         doc.pop("_id", None)
         return doc
 
+    @staticmethod
+    def _log_booth(line: str):
+        """Append a line to booth_allotment.log immediately."""
+        log_path = os.path.join(os.path.dirname(__file__), "logs", "booth_allotment.log")
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        ts = datetime.now(timezone.utc).isoformat()
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"[{ts}] {line}\n")
+                f.flush()
+                os.fsync(f.fileno())
+        except Exception as exc:
+            print(f"[booth_log] {exc}")
+
     # ── public API ─────────────────────────────────────────────────────────
 
     def get_voter(self, entry_number: str) -> dict | None:
         """
         Look up a voter by entry number (case-insensitive).
-
         Intentionally a pure read — does NOT modify the document.
-        Stale lock detection is left to the admin/regenerate flow.
         """
         doc = self.collection.find_one(
             {"entry_number": {"$regex": f"^{entry_number}$", "$options": "i"}}
         )
         return self._serialize(doc)
 
-    def request_token(self, entry_number: str, device_id: str) -> dict | None:
+    def allot_booth(self, allowed_booths: list[int], entry_number: str) -> int:
         """
-        Atomically claim a voter for token generation.
+        Pick the least-occupied booth from allowed_booths using time-decay.
+
+        Occupancy model:
+          - Each active voter (requested or generated) adds 1 to their booth.
+          - Occupancy decays at 1 person/minute from the moment they were
+            allotted (booth_allotted_at), floored at 0.
+          - Ties broken randomly.
+
+        Returns the chosen booth number (int).
+        """
+        now = datetime.now(timezone.utc)
+
+        # Fetch all docs that have a booth allotted (could be requested or generated)
+        active_docs = list(self.collection.find(
+            {
+                "booth_number": {"$in": [str(b) for b in allowed_booths]},
+                "status": {"$not": {"$eq": "not_generated"}},
+            },
+            {"booth_number": 1, "booth_allotted_at": 1, "status": 1}
+        ))
+
+        occupancy = {b: 0.0 for b in allowed_booths}
+        for doc in active_docs:
+            b_str = doc.get("booth_number")
+            try:
+                b = int(b_str)
+            except (TypeError, ValueError):
+                continue
+            if b not in occupancy:
+                continue
+
+            allotted_str = doc.get("booth_allotted_at")
+            if allotted_str:
+                try:
+                    allotted = datetime.fromisoformat(allotted_str)
+                    if allotted.tzinfo is None:
+                        allotted = allotted.replace(tzinfo=timezone.utc)
+                    elapsed_minutes = (now - allotted).total_seconds() / 60.0
+                    contribution = max(0.0, 1.0 - elapsed_minutes)
+                    occupancy[b] += contribution
+                except (ValueError, TypeError):
+                    occupancy[b] += 1.0  # unknown allot time → count as full
+            else:
+                occupancy[b] += 1.0  # no timestamp → count as full
+
+        min_occ = min(occupancy.values())
+        candidates = [b for b, occ in occupancy.items() if math.isclose(occ, min_occ, abs_tol=0.01)]
+        chosen = random.choice(candidates)
+
+        occ_summary = ", ".join(f"B{b}={occupancy[b]:.2f}" for b in sorted(allowed_booths))
+        self._log_booth(
+            f"ALLOT voter={entry_number} booth={chosen} | {occ_summary} | candidates={candidates}"
+        )
+        return chosen
+
+    def get_booth_occupancy(self, all_booths: list[int]) -> dict:
+        """
+        Return estimated current occupancy per booth (time-decayed).
+        Used by the admin dashboard for live traffic monitoring.
+        Returns { booth_id (str): float_occupancy }
+        """
+        now = datetime.now(timezone.utc)
+        active_docs = list(self.collection.find(
+            {
+                "booth_number": {"$in": [str(b) for b in all_booths]},
+                "status": {"$not": {"$eq": "not_generated"}},
+            },
+            {"booth_number": 1, "booth_allotted_at": 1}
+        ))
+
+        occupancy = {str(b): 0.0 for b in all_booths}
+        for doc in active_docs:
+            b_str = doc.get("booth_number")
+            if b_str not in occupancy:
+                continue
+            allotted_str = doc.get("booth_allotted_at")
+            if allotted_str:
+                try:
+                    allotted = datetime.fromisoformat(allotted_str)
+                    if allotted.tzinfo is None:
+                        allotted = allotted.replace(tzinfo=timezone.utc)
+                    elapsed_minutes = (now - allotted).total_seconds() / 60.0
+                    occupancy[b_str] += max(0.0, 1.0 - elapsed_minutes)
+                except (ValueError, TypeError):
+                    occupancy[b_str] += 1.0
+            else:
+                occupancy[b_str] += 1.0
+        return occupancy
+
+    def request_token(self, entry_number: str, device_id: str, allowed_booths: list[int]) -> dict | None:
+        """
+        Atomically claim a voter for token generation AND allot a booth.
+
+        allowed_booths must be non-empty; the server picks the least-occupied
+        booth using time-decay occupancy and includes it in the document.
 
         Succeeds ONLY if the current status is exactly "not_generated".
-        Any other state (in-progress on another device, already generated)
-        returns None so the caller gets a 409.
-
-        The MongoDB find_one_and_update is atomic at the document level,
-        so two simultaneous requests for the same voter cannot both succeed.
+        Returns the updated document (including booth_number) on success,
+        or None if the voter could not be claimed.
         """
-        now = datetime.now(timezone.utc).isoformat()
+        if not allowed_booths:
+            return None
+
+        booth = self.allot_booth(allowed_booths, entry_number)
+        now   = datetime.now(timezone.utc).isoformat()
+
         doc = self.collection.find_one_and_update(
             {
                 "entry_number": {"$regex": f"^{entry_number}$", "$options": "i"},
@@ -94,9 +205,11 @@ class VoterCollection:
             },
             {
                 "$set": {
-                    "status": f"requested_by_device_{device_id}",
-                    "device_id": device_id,
-                    "requested_at": now,
+                    "status":           f"requested_by_device_{device_id}",
+                    "device_id":        device_id,
+                    "requested_at":     now,
+                    "booth_number":     str(booth),
+                    "booth_allotted_at": now,
                 }
             },
             return_document=ReturnDocument.AFTER,

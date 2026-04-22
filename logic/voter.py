@@ -263,7 +263,7 @@ class VoterDB:
         unsynced_requests.json so a power failure before the RFID write
         completes will cause a cancel to be sent on the next reboot.
 
-        Returns: (success: bool, message: str)
+        Returns: (success: bool, message: str, booth: int | None)
         """
         suffix   = "/regenerate" if regenerate else "/request"
         endpoint = f"/voter/{entry_number}{suffix}"
@@ -279,30 +279,36 @@ class VoterDB:
             if success:
                 # Write safety-cancel immediately — survives power failure
                 self.journal.add_safety_cancel(entry_number)
-                return True, "approved"
+                data = resp.json()
+                booth = data.get("booth_number")
+                try:
+                    booth = int(booth) if booth is not None else None
+                except:
+                    booth = None
+                return True, "approved", booth
 
             if resp.status_code == 409:
                 data           = resp.json()
                 current_status = data.get("current_status", "unknown")
                 if current_status.startswith("requested_by_device_"):
                     device = current_status.replace("requested_by_device_", "")
-                    return False, f"Already being processed by Device {device}"
+                    return False, f"Already being processed by Device {device}", None
                 if current_status.startswith("generated_at_device_"):
                     device = current_status.replace("generated_at_device_", "")
-                    return False, f"Token already generated at Device {device}"
-                return False, data.get("error", "Conflict")
+                    return False, f"Token already generated at Device {device}", None
+                return False, data.get("error", "Conflict"), None
 
             if resp.status_code == 404:
-                return False, "Voter not found on central server"
+                return False, "Voter not found on central server", None
 
-            return False, f"Server error ({resp.status_code})"
+            return False, f"Server error ({resp.status_code})", None
 
         except requests.ConnectionError as e:
             self.journal.log_request("POST", endpoint, None, False, entry_number, str(e))
-            return False, f"Cannot reach server at {self.base_url}"
+            return False, f"Cannot reach server at {self.base_url}", None
         except requests.RequestException as e:
             self.journal.log_request("POST", endpoint, None, False, entry_number, str(e))
-            return False, str(e)
+            return False, str(e), None
 
     def mark_rfid_written(self, entry_number: str, token_id: str, booth: int):
         """

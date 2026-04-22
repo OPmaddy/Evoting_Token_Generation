@@ -146,6 +146,30 @@ def entry_number_screen(app, mock_rfid=True):
     if not mock_rfid:
         threading.Thread(target=rfid_poll, daemon=True).start()
 
+    # --- Status Bar (WiFi & Time) ---
+    import datetime
+    status_bar = tk.Frame(app.container, bg="#1e293b", height=30)
+    status_bar.pack(side="bottom", fill="x")
+    
+    wifi_ssid = getattr(app, 'wifi_ssid', None)
+    wifi_text = f"📶 {wifi_ssid}" if wifi_ssid else "📶 ✗ Disconnected"
+    wifi_color = "#10b981" if wifi_ssid else "#ef4444" # Using hex directly for safety
+    
+    tk.Label(status_bar, text=wifi_text, fg=wifi_color, bg="#1e293b", 
+             font=("Segoe UI", 10, "bold")).pack(side="left", padx=20)
+    
+    time_label = tk.Label(status_bar, text="", fg="white", bg="#1e293b", 
+                          font=("Segoe UI", 10, "bold"))
+    time_label.pack(side="right", padx=20)
+    
+    def update_time():
+        if not app.exit_requested:
+            now = datetime.datetime.now().strftime("%H:%M")
+            time_label.config(text=now)
+            app.root.after(30000, update_time)
+    
+    update_time()
+
     # Wait until value entered or exit
     while result["value"] is None and not app.exit_requested:
         app.root.update()
@@ -153,6 +177,7 @@ def entry_number_screen(app, mock_rfid=True):
     
     stop_event.set()
     app.root.unbind('<Return>')
+    status_bar.destroy() # Cleanup status bar when leaving
     return result["value"]
 
 # ---------------- PASSWORD SCREEN ---------------- #
@@ -522,63 +547,7 @@ def admin_dashboard_screen(app):
 
     return result["action"]
 
-# ---------------- SET BMDS ---------------- #
-
-def set_bmds_screen(app, num_booths, current_allowed):
-    app.clear()
-    result = {"done": False}
-    # Create a copy to edit
-    temp_allowed = list(current_allowed)
-    
-    frame = _center_frame(app)
-
-    tk.Label(frame, text="SET ALLOWED BMDs",
-             fg=ACCENT_COLOR, bg=BG_COLOR, font=("Segoe UI", 24, "bold")).pack(pady=(10, 20))
-
-    bmds_frame = tk.Frame(frame, bg=BG_COLOR)
-    bmds_frame.pack(pady=10)
-
-    # We will need references to the buttons to update their colors
-    btn_refs = {}
-
-    def toggle_bmd(b):
-        if b in temp_allowed:
-            # Prevent removing the last allowed BMD
-            if len(temp_allowed) > 1:
-                temp_allowed.remove(b)
-        else:
-            temp_allowed.append(b)
-        update_btn(b)
-
-    def update_btn(b):
-        is_allowed = b in temp_allowed
-        text = f"BMD {b}\n\nALLOWED" if is_allowed else f"BMD {b}\n\nDEACTIVATED"
-        bg = SUCCESS_COLOR if is_allowed else ERROR_COLOR
-        btn_refs[b].config(text=text, bg=bg)
-
-    for i in range(1, num_booths + 1):
-        # Place them in a grid or row
-        b_btn = tk.Button(
-            bmds_frame, font=("Segoe UI", 16, "bold"),
-            command=lambda b=i: toggle_bmd(b),
-            fg="white", activeforeground="white",
-            relief="flat", width=12, height=4, cursor="hand2"
-        )
-        b_btn.pack(side="left", padx=10, pady=10)
-        btn_refs[i] = b_btn
-        update_btn(i)
-
-    def on_done():
-        result["done"] = True
-
-    _styled_button(frame, "SAVE & RETURN", on_done, bg=FG_SECONDARY).pack(pady=30)
-
-    import time
-    while not result["done"] and not app.exit_requested:
-        app.root.update()
-        time.sleep(0.05)
-
-    return temp_allowed
+# (Deleted set_bmds_screen — booth allotment is now server-side)
 
 # ---------------- REGENERATE PROMPT ---------------- #
 
@@ -891,3 +860,20 @@ def custom_rfid_reader_screen(app):
     _styled_button(btn_frame, "EXIT READER", on_exit, bg=FG_SECONDARY).pack()
 
     return write_log, show_result, lambda: exit_requested[0]
+
+def status_screen(app, title, message, fg="#38bdf8", delay=0, on_done=None):
+    """A generic status screen used for boot checks and temporary notifications."""
+    app.clear()
+    frame = _center_frame(app)
+    
+    tk.Label(frame, text=title, fg=fg, bg="#0f172a", font=("Segoe UI", 24, "bold")).pack(pady=(0, 10))
+    
+    tk.Label(frame, text=message, fg="white", bg="#0f172a", font=("Segoe UI", 14), 
+             justify="center", wraplength=600).pack(pady=10)
+    
+    app.root.update()
+    
+    if delay > 0:
+        app.root.after(delay, on_done if on_done else lambda: None)
+    elif on_done:
+        _styled_button(frame, "CONTINUE", on_done).pack(pady=20)

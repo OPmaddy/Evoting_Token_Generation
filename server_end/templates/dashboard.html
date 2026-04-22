@@ -11,6 +11,30 @@
     </div>
 </div>
 
+{% if election_active %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3>Live Booth Traffic</h3>
+        <a href="/admin/bmd_mapping" style="color: var(--accent-color); text-decoration: none; font-size: 0.9rem;">Manage Booths →</a>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem;">
+        {% for booth in all_booths %}
+        {% set occ = occupancy.get(booth|string, 0.0) %}
+        {% set percent = (occ * 100) if occ < 1.0 else 100 %}
+        <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid #334155;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.4rem;">
+                <span>B{{ booth }}</span>
+                <span style="color: var(--accent-color);">{{ "%.1f"|format(occ) }}</span>
+            </div>
+            <div style="height: 4px; background: #1e293b; border-radius: 2px; overflow: hidden;">
+                <div style="height: 100%; width: {{ percent }}%; background: var(--accent-color);"></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <div class="card">
     <h3>Device Status</h3>
     <table>

@@ -333,3 +333,24 @@ class ElectionManager:
             self.state["devices"][device_id][status_key] = value
             self.state["devices"][device_id]["last_active"] = datetime.datetime.now().isoformat()
             self._save_state()
+
+    def get_bmd_mapping(self) -> dict:
+        """Return the current device → allowed-booths mapping."""
+        return self.state.get("config", {}).get("bmd_mapping", {})
+
+    def update_bmd_mapping(self, device_id: str, booth_list: list) -> bool:
+        """
+        Overwrite the allowed booths for a single device and persist immediately.
+        Returns True on success.
+        """
+        if "config" not in self.state:
+            self.state["config"] = {}
+        if "bmd_mapping" not in self.state["config"]:
+            self.state["config"]["bmd_mapping"] = {}
+        self.state["config"]["bmd_mapping"][device_id] = booth_list
+        self._save_state()
+        return True
+
+    def get_num_booths(self) -> int:
+        """Return total number of BMDs configured in bmd_keys."""
+        return self.state.get("config", {}).get("bmd_keys", {}).get("num_booths", 1)

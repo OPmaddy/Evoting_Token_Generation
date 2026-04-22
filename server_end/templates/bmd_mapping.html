@@ -1,0 +1,98 @@
+{% extends "layout.html" %}
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+    <h2>🔧 BMD Control & Live Traffic</h2>
+    <span class="status-badge status-online">LIVE UPDATES ACTIVE</span>
+</div>
+
+<div class="card">
+    <h3>Booth Occupancy Levels</h3>
+    <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">Estimated live traffic based on token generation and 1-minute exit decay.</p>
+    
+    <div id="occupancy-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1.5rem;">
+        {% for booth in all_booths %}
+        {% set occ = occupancy.get(booth|string, 0.0) %}
+        {% set percent = (occ * 100) if occ < 1.0 else 100 %}
+        <div class="booth-card" style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid #334155;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <span style="font-weight: 600;">BOOTH {{ booth }}</span>
+                <span id="occ-text-{{ booth }}" style="color: var(--accent-color);">{{ "%.1f"|format(occ) }} persons</span>
+            </div>
+            <div style="height: 8px; background: #1e293b; border-radius: 4px; overflow: hidden;">
+                <div id="occ-bar-{{ booth }}" style="height: 100%; width: {{ percent }}%; background: var(--accent-color); transition: width 0.5s ease;"></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card">
+    <h3>Device to BMD Mapping</h3>
+    <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">Select which booths each Token Generation station is allowed to allot.</p>
+    
+    <form action="/admin/bmd_mapping" method="POST">
+        <table>
+            <thead>
+                <tr>
+                    <th>Device ID</th>
+                    <th>Allowed Booths</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for dev_id, dev_data in devices.items() %}
+                <tr>
+                    <td><strong>Device {{ dev_id }}</strong></td>
+                    <td>
+                        <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+                            {% for booth in all_booths %}
+                            <label style="display: flex; align-items: center; cursor: pointer; background: #1e293b; padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid #334155;">
+                                <input type="checkbox" name="booths_{{ dev_id }}" value="{{ booth }}" 
+                                       {% if booth in bmd_mapping.get(dev_id, []) %}checked{% endif %}
+                                       style="margin-right: 0.5rem;">
+                                Booth {{ booth }}
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div style="margin-top: 2rem; display: flex; justify-content: flex-end;">
+            <button type="submit" class="btn btn-primary">SAVE MAPPING CHANGES</button>
+        </div>
+    </form>
+</div>
+
+<script>
+document.getElementById('nav-bmd-control').classList.add('active');
+
+async function updateOccupancy() {
+    try {
+        const response = await fetch('/api/booth_occupancy');
+        const data = await response.json();
+        
+        for (const [booth, occ] of Object.entries(data.occupancy)) {
+            const textEl = document.getElementById(`occ-text-${booth}`);
+            const barEl = document.getElementById(`occ-bar-${booth}`);
+            
+            if (textEl) textEl.innerText = `${occ.toFixed(1)} persons`;
+            if (barEl) {
+                const percent = Math.min(100, occ * 100);
+                barEl.style.width = `${percent}%`;
+                
+                // Color shift based on fullness
+                if (occ > 0.8) barEl.style.background = 'var(--error)';
+                else if (occ > 0.5) barEl.style.background = 'var(--warning)';
+                else barEl.style.background = 'var(--accent-color)';
+            }
+        }
+    } catch (e) {
+        console.error("Failed to fetch occupancy:", e);
+    }
+}
+
+// Update every 5 seconds
+setInterval(updateOccupancy, 5000);
+</script>
+{% endblock %}

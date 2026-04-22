@@ -33,7 +33,6 @@ import io
 
 from logic.voter import VoterDB
 from logic.token import (
-    assign_booth,
     build_token_payload,
     encrypt_payload_aes,
     decrypt_payload_aes
@@ -93,18 +92,7 @@ def main():
 
     app = FullscreenApp()
     
-    # Load Allowed BMDs from disk
-    allowed_bmds_path = "allowed_bmds.json"
-    if os.path.exists(allowed_bmds_path):
-        try:
-            with open(allowed_bmds_path, "r") as f:
-                app.allowed_bmds = json.load(f).get("allowed", [1])
-        except Exception as e:
-            print(f"Warning: Failed to load allowed_bmds.json: {e}")
-            app.allowed_bmds = [1]
-    else:
-        app.allowed_bmds = [1]
-        
+    app.wifi_ssid = None
     app.voter_db = VoterDB()
     
     # Load Booth Public Keys
@@ -135,6 +123,14 @@ def main():
             except:
                 pass
                 
+    # --- Boot-time Hardware & Connectivity Checks ---
+    from logic.boot_checks import run_boot_checks
+    import time
+    if not run_boot_checks(app, mock_rfid=MOCK_RFID):
+        print("Hardware checks failed. Rebooting in 10 seconds...")
+        time.sleep(10)
+        reboot_system()
+
     # Sync Time (Admin requires Sudo process)
     try:
         print("Attempting to sync time via NTP from Google...")
@@ -572,26 +568,20 @@ def main():
             if not regenerate_entry and app.voter_db.has_token(voter):
                 already_generated_screen(app, voter, on_done=flow)
                 return
- 
-            # Check if another device is already processing this voter
-            if app.voter_db.is_in_progress(voter):
-                status_screen(app, "IN PROGRESS",
-                              "This voter is currently being processed by another device.\nPlease wait or try a different voter.",
-                              fg="orange", on_done=flow)
-                return
- 
-            # Request permission from the central server to generate token
-            req_ok, req_msg = app.voter_db.request_token(entry, regenerate=bool(regenerate_entry))
-            if not req_ok:
+
+            # Request token from server — now returns allotted booth
+            ok, msg, booth = app.voter_db.request_token(entry, regenerate=bool(regenerate_entry))
+            if not ok:
                 status_screen(app, "REQUEST DENIED",
-                              f"Cannot generate token for this voter:\n{req_msg}",
+                              f"Cannot generate token for this voter:\n{msg}",
                               fg="red", on_done=flow)
                 return
+            voter["booth"] = booth
 
         # ---- FACE VERIFICATION ----
         if BYPASS_FACE:
             print("Bypassing face verification...")
-            app.root.after(0, lambda: finalize(entry, voter, []))
+            app.root.after(0, lambda: finalize(entry, voter, [], voter.get("booth", 1)))
             return
 
         emb_path = os.path.join(EMBEDDINGS_DIR, f"{entry}.npy")
@@ -707,16 +697,15 @@ def main():
             "Biometric verification successful.\nProceeding to token generation...",
             fg="green",
             delay=2000,
-            on_done=lambda: finalize(entry, voter, images)
+            on_done=lambda: finalize(entry, voter, images, voter.get("booth", 1))
         )
-    def finalize(entry, voter, images):
+    def finalize(entry, voter, images, booth):
         if not app.allowed_bmds:
             # Lock must be released — voter was already claimed on the server
             app.voter_db.cancel_token(entry)
             status_screen(app, "SYSTEM ERROR", "No BMDs are currently allowed.\nAdmin must configure BMDs.", fg="red", on_done=flow)
             return
 
-        booth = assign_booth(entry, voter["EID_Vector"], app.allowed_bmds)
         payload = build_token_payload(entry, voter["EID_Vector"], booth)
         
         # Encrypt using SHARED AES KEY
@@ -888,6 +877,42 @@ def main():
             if writer is not None:
                 writer.close()
 
+    def _check_last_log_for_orphan_request():
+        """
+        Safety net for power failures: checks if the last successful request
+        was a voter claim without a corresponding confirm/cancel.
+        """
+        log_path = "logs/requests.log"
+        if not os.path.exists(log_path):
+            return
+            
+        try:
+            with open(log_path, "r") as f:
+                lines = f.readlines()[-20:] # Check last 20 entries
+            
+            last_request = None
+            last_resolution = None
+            
+            for line in lines:
+                if "OK   POST /api/voter/" in line and "/request" in line:
+                    # Found a successful request
+                    import re
+                    match = re.search(r"voter=(\S+)", line)
+                    if match:
+                        last_request = match.group(1)
+                        last_resolution = None # Reset resolution if new request found
+                
+                if last_request and f"voter={last_request}" in line:
+                    if "/confirm" in line or "/cancel" in line:
+                        last_resolution = line
+            
+            if last_request and not last_resolution:
+                print(f"[BOOT] Orphan request found for {last_request} in logs. Adding safety cancel.")
+                app.voter_db.journal.add_safety_cancel(last_request)
+                
+        except Exception as e:
+            print(f"Error checking orphan logs: {e}")
+
     def replay_unsynced_requests():
         """
         On startup, replay any critical pending requests before the normal
@@ -896,6 +921,10 @@ def main():
         Priority: confirms first (RFID already written), then cancels.
         """
         import time as _t
+        
+        # 1. Belt-and-suspenders: check log for orphans before reading journal
+        _check_last_log_for_orphan_request()
+        
         pending = app.voter_db.journal.get_pending()
         if not pending:
             return

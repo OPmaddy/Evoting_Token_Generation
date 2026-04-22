@@ -3,11 +3,6 @@ import json
 import base64
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-# ------------------ BOOTH ------------------
-def assign_booth(entry_number: str, eid_vector: str, allowed_bmds: list) -> int:
-    idx = abs(hash(entry_number + eid_vector)) % len(allowed_bmds)
-    return allowed_bmds[idx]
-
 # ------------------ TOKEN ------------------
 def build_token_payload(
     entry_number: str,

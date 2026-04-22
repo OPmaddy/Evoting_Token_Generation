@@ -318,6 +318,7 @@ def regenerate_token(entry_number: str):
     return jsonify({
         "message": f"Token regeneration approved for device {device_id}",
         "voter": result,
+        "booth_number": result.get("booth_number"),
     }), 200
 
 # ─── Fetch Electoral Roll ─────────────────────────────────────────────────────

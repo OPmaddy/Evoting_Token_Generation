@@ -525,7 +525,6 @@ def admin_dashboard_screen(app):
     btn_frame.pack(pady=10)
 
     def on_reset(): result["action"] = "RESET"
-    def on_set_bmds(): result["action"] = "SET_BMDS"
     def on_regenerate(): result["action"] = "REGENERATE"
     def on_reinit(): result["action"] = "REINIT_ELECTIONS"
     def on_fw_update(): result["action"] = "FIRMWARE_UPDATE"
@@ -534,7 +533,6 @@ def admin_dashboard_screen(app):
 
     _styled_button(btn_frame, "RE-INITIALIZE ELECTIONS", on_reinit, bg=ERROR_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "FIRMWARE UPDATE", on_fw_update, bg=WARNING_COLOR).pack(pady=5, fill="x")
-    _styled_button(btn_frame, "SET ALLOWED BMDS", on_set_bmds, bg=ACCENT_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "CUSTOM READER", lambda: result.update({"action": "CUSTOM_READER"}), bg=ACCENT_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "REGENERATE TOKEN", on_regenerate, bg=WARNING_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "RESET PASSWORD", on_reset_pwd, bg=FG_SECONDARY).pack(pady=5, fill="x")

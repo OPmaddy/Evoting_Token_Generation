@@ -17,7 +17,6 @@ from ui.screens import (
     voter_confirmation_screen,
     password_prompt_screen,
     admin_dashboard_screen,
-    set_bmds_screen,
     regenerate_prompt_screen,
     reset_password_screen,
     confirm_action_screen,
@@ -393,13 +392,6 @@ def main():
                     if action == "EXIT":
                         app.root.after(10, flow)
                         return
-                    elif action == "SET_BMDS":
-                        app.allowed_bmds = set_bmds_screen(app, app.num_booths, app.allowed_bmds)
-                        try:
-                            with open("allowed_bmds.json", "w") as f:
-                                json.dump({"allowed": app.allowed_bmds}, f)
-                        except Exception as e:
-                            print(f"Failed to save allowed BMDs: {e}")
                     elif action == "REGENERATE":
                         target_entry = regenerate_prompt_screen(app)
                         if target_entry:

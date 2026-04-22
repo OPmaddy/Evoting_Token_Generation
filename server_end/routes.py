@@ -412,6 +412,15 @@ def inject_globals():
     )
 
 
+@admin.route("/")
+def index():
+    """Admin home — redirects to dashboard if election is active, else to init."""
+    if manager.state.get("active_election"):
+        return redirect(url_for("admin.dashboard"))
+    else:
+        return redirect(url_for("admin.init_election"))
+
+
 @admin.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -420,7 +429,7 @@ def login():
         creds = get_admin_creds()
         if username == creds.get("username") and check_password_hash(creds.get("password_hash"), password):
             session["logged_in"] = True
-            next_url = request.args.get("next") or url_for("admin.dashboard")
+            next_url = request.args.get("next") or url_for("admin.index")
             return redirect(next_url)
         else:
             flash("Invalid credentials", "error")

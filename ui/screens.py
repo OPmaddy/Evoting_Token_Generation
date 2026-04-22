@@ -820,7 +820,7 @@ def custom_rfid_reader_screen(app):
     log_frame = tk.Frame(frame, bg="#1e1e1e", bd=2, relief="sunken")
     log_frame.pack(fill="both", expand=True, padx=20, pady=5)
 
-    log_text = tk.Text(log_frame, bg="#1e1e1e", fg="#33ff33", font=("Consolas", 10),
+    log_text = tk.Text(log_frame, bg="#f1f5f9", fg="#1e293b", font=("Consolas", 10),
                       state="disabled", wrap="word", height=10)
     log_text.pack(side="left", fill="both", expand=True)
 
@@ -862,7 +862,7 @@ def custom_rfid_reader_screen(app):
 
     return write_log, show_result, lambda: exit_requested[0]
 
-def status_screen(app, title, message, fg="#38bdf8", delay=0, on_done=None):
+def status_screen(app, title, message, fg=ACCENT_COLOR, delay=0, on_done=None):
     """A generic status screen used for boot checks and temporary notifications."""
     app.clear()
     frame = _center_frame(app)

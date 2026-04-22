@@ -14,7 +14,7 @@ read -s -p "Enter Hotspot Password: " HOTSPOT_PASS
 echo ""
 
 # -------- WPA2 ENTERPRISE (Backup) --------
-read -p "Enter Enterprise SSID (e.g. IITD_WiFi): " ENT_SSID
+read -p "Enter Enterprise SSID (e.g. IITD_WIFI): " ENT_SSID
 read -p "Enter Enterprise Username: " ENT_USER
 read -s -p "Enter Enterprise Password: " ENT_PASS
 echo ""
@@ -33,26 +33,21 @@ nmcli connection add type wifi ifname wlan0 con-name "$HOTSPOT_SSID" ssid "$HOTS
 
 nmcli connection modify "$HOTSPOT_SSID" wifi-sec.key-mgmt wpa-psk
 nmcli connection modify "$HOTSPOT_SSID" wifi-sec.psk "$HOTSPOT_PASS"
-
 nmcli connection modify "$HOTSPOT_SSID" connection.autoconnect yes
 nmcli connection modify "$HOTSPOT_SSID" connection.autoconnect-priority 10
 
 # ---------- ENTERPRISE WIFI SETUP ----------
 echo "Setting up enterprise WiFi (Backup)..."
 
-nmcli connection add type wifi ifname wlan0 con-name "$ENT_SSID" ssid "$ENT_SSID"
-
-nmcli connection modify "$ENT_SSID" wifi-sec.key-mgmt wpa-eap
-nmcli connection modify "$ENT_SSID" 802-1x.eap peap
-nmcli connection modify "$ENT_SSID" 802-1x.identity "$ENT_USER"
-nmcli connection modify "$ENT_SSID" 802-1x.password "$ENT_PASS"
-nmcli connection modify "$ENT_SSID" 802-1x.phase2-auth mschapv2
-
-# Important for many enterprise networks (including IITD)
-nmcli connection modify "$ENT_SSID" 802-1x.system-ca-certs yes
-
-nmcli connection modify "$ENT_SSID" connection.autoconnect yes
-nmcli connection modify "$ENT_SSID" connection.autoconnect-priority 5
+nmcli connection add type wifi ifname wlan0 con-name "$ENT_SSID" ssid "$ENT_SSID" \
+  wifi-sec.key-mgmt wpa-eap \
+  802-1x.eap peap \
+  802-1x.identity "$ENT_USER" \
+  802-1x.password "$ENT_PASS" \
+  802-1x.phase2-auth mschapv2 \
+  802-1x.system-ca-certs yes \
+  connection.autoconnect yes \
+  connection.autoconnect-priority 5
 
 # ---------- CONNECT PRIMARY ----------
 echo "Connecting to primary network..."

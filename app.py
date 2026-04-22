@@ -338,8 +338,9 @@ def main():
                 if os.path.exists("admin_sec.json"):
                     with open("admin_sec.json", "r") as f:
                         admin_pwd = json.load(f).get("pwd", "admin")
+                        
                 if pwd == admin_pwd:
-                    # Extend by clearing the end time for now locally, or you could add 1 hour
+                    # Extend by 2 hours
                     app.election_end_time = datetime.datetime.now() + datetime.timedelta(hours=2)
                     try:
                         with open("election_end_time.txt", "w") as f:
@@ -692,11 +693,6 @@ def main():
             on_done=lambda: finalize(entry, voter, images, voter.get("booth", 1))
         )
     def finalize(entry, voter, images, booth):
-        if not app.allowed_bmds:
-            # Lock must be released — voter was already claimed on the server
-            app.voter_db.cancel_token(entry)
-            status_screen(app, "SYSTEM ERROR", "No BMDs are currently allowed.\nAdmin must configure BMDs.", fg="red", on_done=flow)
-            return
 
         payload = build_token_payload(entry, voter["EID_Vector"], booth)
         

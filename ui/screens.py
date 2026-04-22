@@ -163,10 +163,13 @@ def entry_number_screen(app, mock_rfid=True):
     time_label.pack(side="right", padx=20)
     
     def update_time():
-        if not app.exit_requested:
+        if not app.exit_requested and time_label.winfo_exists():
             now = datetime.datetime.now().strftime("%H:%M")
-            time_label.config(text=now)
-            app.root.after(30000, update_time)
+            try:
+                time_label.config(text=now)
+                app.root.after(30000, update_time)
+            except tk.TclError:
+                pass # Widget destroyed
     
     update_time()
 

@@ -4,16 +4,19 @@ import datetime
 import base64
 import socket
 import ipaddress
+import zipfile
+import shutil
+import glob
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.primitives.asymmetric import rsa
+from pymongo import MongoClient
+
 import db_init
 from models import VoterCollection
-import zipfile
-import shutil
-import glob
+from config import MONGO_URI, MONGO_DB_NAME
 
 STATE_FILE = "election_state.json"
 CERTS_DIR = "all_certs"
@@ -22,25 +25,36 @@ MASTER_CERTS_DIR = "master_certs"
 class ElectionManager:
     def __init__(self, base_dir):
         self.base_dir = base_dir
-        self.state_path = os.path.join(base_dir, STATE_FILE)
         self.certs_dir = os.path.join(base_dir, CERTS_DIR)
         self.master_dir = os.path.join(base_dir, MASTER_CERTS_DIR)
-        self.state = self._load_state()
+        
+        # Initialize MongoDB connection for shared state
+        self.client = MongoClient(MONGO_URI)
+        self.db = self.client[MONGO_DB_NAME]
+        self.settings = self.db["election_settings"]
 
-    def _load_state(self):
-        if os.path.exists(self.state_path):
-            with open(self.state_path, "r") as f:
-                return json.load(f)
-        return {
-            "active_election": False,
-            "master_update_required": False,
-            "config": {},
-            "devices": {}
-        }
+    @property
+    def state(self):
+        """Fetch the latest state from MongoDB (shared across Gunicorn workers)."""
+        doc = self.settings.find_one({"type": "main_state"})
+        if not doc:
+            return {
+                "active_election": False,
+                "master_update_required": False,
+                "config": {},
+                "devices": {}
+            }
+        return doc
 
-    def _save_state(self):
-        with open(self.state_path, "w") as f:
-            json.dump(self.state, f, indent=4)
+    def _save_state(self, new_state):
+        """Persist state to MongoDB."""
+        # Ensure _id is not in the set payload to avoid immutable field errors
+        new_state.pop("_id", None)
+        self.settings.update_one(
+            {"type": "main_state"},
+            {"$set": new_state},
+            upsert=True
+        )
 
     def generate_ca(self, path, name):
         key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
@@ -255,12 +269,13 @@ class ElectionManager:
             election_config["bmd_keys"]["aes_key"] = "632af6d3184f4f3460e42d76587c6722d56a7c9360824699564f89d0f4d36ef5"
 
         # 4. Save state
-        self.state["active_election"] = True
-        self.state["active_election_name"] = election_config.get("election_name", "Untitled")
-        self.state["master_update_required"] = self.state.get("master_update_required", False) 
-        self.state["config"] = election_config
-        self.state["devices"] = {str(i): {"provisioned": False, "last_active": None, "logs_uploaded": False} for i in range(1, num_tgens + 1)}
-        self._save_state()
+        new_state = self.state
+        new_state["active_election"] = True
+        new_state["active_election_name"] = election_config.get("election_name", "Untitled")
+        new_state["master_update_required"] = new_state.get("master_update_required", False) 
+        new_state["config"] = election_config
+        new_state["devices"] = {str(i): {"provisioned": False, "last_active": None, "logs_uploaded": False} for i in range(1, num_tgens + 1)}
+        self._save_state(new_state)
 
         # 5. Save Electoral Roll
         csv_path = os.path.join(self.base_dir, "..", "Electoral_Roll.csv")
@@ -324,15 +339,17 @@ class ElectionManager:
         with open(manifest_path, "w") as f:
             json.dump(manifest, f, indent=4)
         
-        self.state["active_election"] = False
-        self._save_state()
+        new_state = self.state
+        new_state["active_election"] = False
+        self._save_state(new_state)
         return True
 
     def update_device_status(self, device_id, status_key, value):
-        if device_id in self.state["devices"]:
-            self.state["devices"][device_id][status_key] = value
-            self.state["devices"][device_id]["last_active"] = datetime.datetime.now().isoformat()
-            self._save_state()
+        current = self.state
+        if device_id in current.get("devices", {}):
+            current["devices"][device_id][status_key] = value
+            current["devices"][device_id]["last_active"] = datetime.datetime.now().isoformat()
+            self._save_state(current)
 
     def get_bmd_mapping(self) -> dict:
         """Return the current device → allowed-booths mapping."""
@@ -343,12 +360,13 @@ class ElectionManager:
         Overwrite the allowed booths for a single device and persist immediately.
         Returns True on success.
         """
-        if "config" not in self.state:
-            self.state["config"] = {}
-        if "bmd_mapping" not in self.state["config"]:
-            self.state["config"]["bmd_mapping"] = {}
-        self.state["config"]["bmd_mapping"][device_id] = booth_list
-        self._save_state()
+        current = self.state
+        if "config" not in current:
+            current["config"] = {}
+        if "bmd_mapping" not in current["config"]:
+            current["config"]["bmd_mapping"] = {}
+        current["config"]["bmd_mapping"][device_id] = booth_list
+        self._save_state(current)
         return True
 
     def get_num_booths(self) -> int:

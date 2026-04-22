@@ -29,7 +29,8 @@ by this module.  They must be resolved by an admin using the regenerate flow
 or cancel flow.  This eliminates the race condition where a passive GET could
 silently steal a live device's lock.
 """
-
+import os
+import threading
 from datetime import datetime, timezone
 from pymongo import MongoClient, ReturnDocument
 from config import (
@@ -41,6 +42,9 @@ import random
 import os
 import math
 
+
+# Global lock for thread-safe file logging
+log_lock = threading.Lock()
 
 class VoterCollection:
     """Thread-safe wrapper around the voters MongoDB collection."""
@@ -70,13 +74,14 @@ class VoterCollection:
         log_path = os.path.join(os.path.dirname(__file__), "logs", "booth_allotment.log")
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         ts = datetime.now(timezone.utc).isoformat()
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"[{ts}] {line}\n")
-                f.flush()
-                os.fsync(f.fileno())
-        except Exception as exc:
-            print(f"[booth_log] {exc}")
+        with log_lock:
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(f"[{ts}] {line}\n")
+                    f.flush()
+                    os.fsync(f.fileno())
+            except Exception as exc:
+                print(f"[booth_log] {exc}")
 
     # ── public API ─────────────────────────────────────────────────────────
 

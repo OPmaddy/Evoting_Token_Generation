@@ -14,6 +14,7 @@ GET   /api/voters                         Admin: list all voters
 from flask import Blueprint, render_template, request, jsonify, send_file, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
+import threading
 import json
 import base64
 import pandas as pd
@@ -28,6 +29,9 @@ admin = Blueprint("admin", __name__, url_prefix="/admin")
 # Shared collection instance
 voters  = VoterCollection()
 manager = ElectionManager(os.path.dirname(__file__))
+
+# Global lock for thread-safe file logging
+server_log_lock = threading.Lock()
 
 # ─── Server Request Logger ──────────────────────────────────────────────────────────────────────
 
@@ -51,10 +55,11 @@ def _log_server_request(response=None, error_msg: str = None):
         voter_str = f" voter={parts[2]}"
     line = f"[{ts}] device={cn} {method:4s} {path} → {status}{voter_str}{extra}\n"
     try:
-        with open(_SERVER_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(line)
-            f.flush()
-            os.fsync(f.fileno())
+        with server_log_lock:
+            with open(_SERVER_LOG_PATH, "a", encoding="utf-8") as f:
+                f.write(line)
+                f.flush()
+                os.fsync(f.fileno())
     except Exception as exc:
         print(f"[LOG ERROR] Could not write to server_requests.log: {exc}")
 

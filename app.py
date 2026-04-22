@@ -399,16 +399,17 @@ def main():
                             app.root.after(10, lambda: flow(regenerate_entry=target_entry))
                             return
                     elif action == "FIRMWARE_UPDATE":
-                        status_screen(app, "UPDATING FIRMWARE", "Pulling latest code...", fg="orange")
-                        app.root.update()
-                        try:
-                            # Stash any local changes to ensure pull succeeds
-                            subprocess.run(["git", "stash"], cwd=os.path.dirname(__file__))
-                            subprocess.run(["git", "pull"], check=True, cwd=os.path.dirname(__file__))
-                            status_screen(app, "UPDATE SUCCESS", "Code updated. System will reboot.", fg="green", delay=3000, on_done=reboot_system)
-                        except Exception as e:
-                            status_screen(app, "UPDATE FAILED", str(e), fg="red", delay=3000, on_done=flow)
-                        return
+                        if confirm_action_screen(app, "CONFIRM UPDATE", "Are you sure you want to pull the latest firmware?\nThe device will reboot automatically after a successful update."):
+                            status_screen(app, "UPDATING FIRMWARE", "Pulling latest code...", fg="orange")
+                            app.root.update()
+                            try:
+                                # Stash any local changes to ensure pull succeeds
+                                subprocess.run(["git", "stash"], cwd=os.path.dirname(__file__))
+                                subprocess.run(["git", "pull"], check=True, cwd=os.path.dirname(__file__))
+                                status_screen(app, "UPDATE SUCCESS", "Code updated. System will reboot.", fg="green", delay=3000, on_done=reboot_system)
+                            except Exception as e:
+                                status_screen(app, "UPDATE FAILED", str(e), fg="red", delay=3000, on_done=flow)
+                            return
                     elif action == "RESET_PASSWORD":
                         old, new = reset_password_screen(app)
                         if old == admin_pwd and new:

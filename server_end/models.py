@@ -93,65 +93,70 @@ class VoterCollection:
     def allot_booth(self, allowed_booths: list[int], entry_number: str) -> int:
         """
         Pick the least-occupied booth from allowed_booths using time-decay.
-
-        Occupancy model:
-          - Each active voter (requested or generated) adds 1 to their booth.
-          - Occupancy decays at 1 person/minute from the moment they were
-            allotted (booth_allotted_at), floored at 0.
-          - Ties broken randomly.
-
+        Tie-breaker: Prefer booths with lower lifetime usage (total history).
         Returns the chosen booth number (int).
         """
         now = datetime.now(timezone.utc)
 
-        # Fetch all docs that have a booth allotted (could be requested or generated)
+        # 1. Fetch current active docs for time-decay occupancy
         active_docs = list(self.collection.find(
             {
                 "booth_number": {"$in": [str(b) for b in allowed_booths]},
                 "status": {"$not": {"$eq": "not_generated"}},
             },
-            {"booth_number": 1, "booth_allotted_at": 1, "status": 1}
+            {"booth_number": 1, "booth_allotted_at": 1}
         ))
 
         occupancy = {b: 0.0 for b in allowed_booths}
         for doc in active_docs:
-            b_str = doc.get("booth_number")
             try:
+                b_str = doc.get("booth_number")
                 b = int(b_str)
-            except (TypeError, ValueError):
-                continue
-            if b not in occupancy:
-                continue
+                if b not in occupancy: continue
+            except: continue
 
             allotted_str = doc.get("booth_allotted_at")
             if allotted_str:
                 try:
                     allotted = datetime.fromisoformat(allotted_str)
-                    if allotted.tzinfo is None:
-                        allotted = allotted.replace(tzinfo=timezone.utc)
+                    if allotted.tzinfo is None: allotted = allotted.replace(tzinfo=timezone.utc)
                     elapsed_minutes = (now - allotted).total_seconds() / 60.0
-                    contribution = max(0.0, 1.0 - elapsed_minutes)
-                    occupancy[b] += contribution
-                except (ValueError, TypeError):
-                    occupancy[b] += 1.0  # unknown allot time → count as full
-            else:
-                occupancy[b] += 1.0  # no timestamp → count as full
+                    occupancy[b] += max(0.0, 1.0 - elapsed_minutes)
+                except: occupancy[b] += 1.0
+            else: occupancy[b] += 1.0
 
+        # 2. Fetch lifetime usage (total allotments) for tie-breaking
+        lifetime_usage = {b: 0 for b in allowed_booths}
+        usage_data = list(self.collection.aggregate([
+            {"$match": {"booth_number": {"$in": [str(b) for b in allowed_booths]}}},
+            {"$group": {"_id": "$booth_number", "count": {"$sum": 1}}}
+        ]))
+        for item in usage_data:
+            try:
+                b = int(item["_id"])
+                if b in lifetime_usage: lifetime_usage[b] = item["count"]
+            except: continue
+
+        # 3. Decision logic: Min occupancy first, then min lifetime
         min_occ = min(occupancy.values())
         candidates = [b for b, occ in occupancy.items() if math.isclose(occ, min_occ, abs_tol=0.01)]
-        chosen = random.choice(candidates)
+        
+        if len(candidates) > 1:
+            min_life = min(lifetime_usage[b] for b in candidates)
+            final_candidates = [b for b in candidates if lifetime_usage[b] == min_life]
+            chosen = random.choice(final_candidates)
+        else:
+            chosen = candidates[0]
 
-        occ_summary = ", ".join(f"B{b}={occupancy[b]:.2f}" for b in sorted(allowed_booths))
-        self._log_booth(
-            f"ALLOT voter={entry_number} booth={chosen} | {occ_summary} | candidates={candidates}"
-        )
+        occ_summary = ", ".join(f"B{b}={occupancy[b]:.2f}(L:{lifetime_usage[b]})" for b in sorted(allowed_booths))
+        self._log_booth(f"ALLOT voter={entry_number} booth={chosen} | {occ_summary} | candidates={candidates}")
         return chosen
 
     def get_booth_occupancy(self, all_booths: list[int]) -> dict:
         """
-        Return estimated current occupancy per booth (time-decayed).
+        Return estimated current occupancy AND lifetime usage per booth.
         Used by the admin dashboard for live traffic monitoring.
-        Returns { booth_id (str): float_occupancy }
+        Returns { "occupancy": {str: float}, "lifetime": {str: int} }
         """
         now = datetime.now(timezone.utc)
         active_docs = list(self.collection.find(
@@ -162,24 +167,32 @@ class VoterCollection:
             {"booth_number": 1, "booth_allotted_at": 1}
         ))
 
-        occupancy = {str(b): 0.0 for b in all_booths}
+        occ = {str(b): 0.0 for b in all_booths}
         for doc in active_docs:
             b_str = doc.get("booth_number")
-            if b_str not in occupancy:
-                continue
+            if b_str not in occ: continue
+            
             allotted_str = doc.get("booth_allotted_at")
             if allotted_str:
                 try:
                     allotted = datetime.fromisoformat(allotted_str)
-                    if allotted.tzinfo is None:
-                        allotted = allotted.replace(tzinfo=timezone.utc)
+                    if allotted.tzinfo is None: allotted = allotted.replace(tzinfo=timezone.utc)
                     elapsed_minutes = (now - allotted).total_seconds() / 60.0
-                    occupancy[b_str] += max(0.0, 1.0 - elapsed_minutes)
-                except (ValueError, TypeError):
-                    occupancy[b_str] += 1.0
-            else:
-                occupancy[b_str] += 1.0
-        return occupancy
+                    occ[b_str] += max(0.0, 1.0 - elapsed_minutes)
+                except: occ[b_str] += 1.0
+            else: occ[b_str] += 1.0
+
+        # Lifetime usage
+        life = {str(b): 0 for b in all_booths}
+        usage_data = list(self.collection.aggregate([
+            {"$match": {"booth_number": {"$in": [str(b) for b in all_booths]}}},
+            {"$group": {"_id": "$booth_number", "count": {"$sum": 1}}}
+        ]))
+        for item in usage_data:
+            b_str = item["_id"]
+            if b_str in life: life[b_str] = item["count"]
+
+        return {"occupancy": occ, "lifetime": life}
 
     def request_token(self, entry_number: str, device_id: str, allowed_booths: list[int]) -> dict | None:
         """

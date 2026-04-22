@@ -24,8 +24,9 @@ def import_electoral_roll(csv_path: str, drop_existing: bool = False):
         print(f"Dropping existing collection '{MONGO_COLLECTION}' ...")
         collection.drop()
 
-    # Ensure unique index
+    # Ensure indexes
     collection.create_index("entry_number", unique=True)
+    collection.create_index("booth_number")
 
     # Read CSV
     try:

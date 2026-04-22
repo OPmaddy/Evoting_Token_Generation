@@ -216,11 +216,15 @@ def request_token(entry_number: str):
 
 @api.route("/booth_occupancy", methods=["GET"])
 def booth_occupancy():
-    """Return time-decayed estimated occupancy per booth for the admin dashboard."""
+    """Return current occupancy AND lifetime usage per booth for the dashboard."""
     num_booths = manager.get_num_booths()
     all_booths = list(range(1, num_booths + 1))
-    occ = voters.get_booth_occupancy(all_booths)
-    return jsonify({"occupancy": occ, "num_booths": num_booths}), 200
+    stats = voters.get_booth_occupancy(all_booths)
+    return jsonify({
+        "occupancy": stats["occupancy"],
+        "lifetime": stats["lifetime"],
+        "num_booths": num_booths
+    }), 200
 
 
 # ─── Confirm Token Generated ──────────────────────────────────────────────────
@@ -442,14 +446,15 @@ def change_password():
 def dashboard():
     num_booths = manager.get_num_booths()
     all_booths = list(range(1, num_booths + 1))
-    occupancy  = voters.get_booth_occupancy(all_booths)
+    stats      = voters.get_booth_occupancy(all_booths)
     return render_template(
         "dashboard.html",
         election_active=manager.state.get("active_election"),
         master_update_required=manager.state.get("master_update_required"),
         devices=manager.state.get("devices", {}),
         bmd_mapping=manager.get_bmd_mapping(),
-        occupancy=occupancy,
+        occupancy=stats["occupancy"],
+        lifetime=stats["lifetime"],
         all_booths=all_booths,
     )
 
@@ -470,13 +475,14 @@ def bmd_mapping():
 
     num_booths  = manager.get_num_booths()
     all_booths  = list(range(1, num_booths + 1))
-    occupancy   = voters.get_booth_occupancy(all_booths)
+    stats       = voters.get_booth_occupancy(all_booths)
     return render_template(
         "bmd_mapping.html",
         devices=manager.state.get("devices", {}),
         bmd_mapping=manager.get_bmd_mapping(),
         all_booths=all_booths,
-        occupancy=occupancy,
+        occupancy=stats["occupancy"],
+        lifetime=stats["lifetime"],
     )
 
 @admin.route("/init", methods=["GET", "POST"])

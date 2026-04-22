@@ -12,11 +12,15 @@
     <div id="occupancy-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1.5rem;">
         {% for booth in all_booths %}
         {% set occ = occupancy.get(booth|string, 0.0) %}
+        {% set life = lifetime.get(booth|string, 0) %}
         {% set percent = (occ * 100) if occ < 1.0 else 100 %}
         <div class="booth-card" style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid #334155;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
                 <span style="font-weight: 600;">BOOTH {{ booth }}</span>
-                <span id="occ-text-{{ booth }}" style="color: var(--accent-color);">{{ "%.1f"|format(occ) }} persons</span>
+                <span id="life-text-{{ booth }}" style="color: var(--text-secondary); font-size: 0.8rem;">Total: {{ life }}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <span id="occ-text-{{ booth }}" style="color: var(--accent-color);">Live: {{ "%.1f"|format(occ) }} persons</span>
             </div>
             <div style="height: 8px; background: #1e293b; border-radius: 4px; overflow: hidden;">
                 <div id="occ-bar-{{ booth }}" style="height: 100%; width: {{ percent }}%; background: var(--accent-color); transition: width 0.5s ease;"></div>
@@ -72,11 +76,12 @@ async function updateOccupancy() {
         const response = await fetch('/api/booth_occupancy');
         const data = await response.json();
         
+        // Update occupancy
         for (const [booth, occ] of Object.entries(data.occupancy)) {
             const textEl = document.getElementById(`occ-text-${booth}`);
             const barEl = document.getElementById(`occ-bar-${booth}`);
             
-            if (textEl) textEl.innerText = `${occ.toFixed(1)} persons`;
+            if (textEl) textEl.innerText = `Live: ${occ.toFixed(1)} persons`;
             if (barEl) {
                 const percent = Math.min(100, occ * 100);
                 barEl.style.width = `${percent}%`;
@@ -85,6 +90,14 @@ async function updateOccupancy() {
                 if (occ > 0.8) barEl.style.background = 'var(--error)';
                 else if (occ > 0.5) barEl.style.background = 'var(--warning)';
                 else barEl.style.background = 'var(--accent-color)';
+            }
+        }
+
+        // Update lifetime usage
+        if (data.lifetime) {
+            for (const [booth, count] of Object.entries(data.lifetime)) {
+                const lifeEl = document.getElementById(`life-text-${booth}`);
+                if (lifeEl) lifeEl.innerText = `Total: ${count}`;
             }
         }
     } catch (e) {

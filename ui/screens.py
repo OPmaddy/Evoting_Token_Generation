@@ -148,17 +148,17 @@ def entry_number_screen(app, mock_rfid=True):
 
     # --- Status Bar (WiFi & Time) ---
     import datetime
-    status_bar = tk.Frame(app.container, bg="#1e293b", height=30)
+    status_bar = tk.Frame(app.container, bg=BG_COLOR, height=35)
     status_bar.pack(side="bottom", fill="x")
     
     wifi_ssid = getattr(app, 'wifi_ssid', None)
     wifi_text = f"📶 {wifi_ssid}" if wifi_ssid else "📶 ✗ Disconnected"
-    wifi_color = "#10b981" if wifi_ssid else "#ef4444" # Using hex directly for safety
+    wifi_color = SUCCESS_COLOR if wifi_ssid else ERROR_COLOR
     
-    tk.Label(status_bar, text=wifi_text, fg=wifi_color, bg="#1e293b", 
+    tk.Label(status_bar, text=wifi_text, fg=wifi_color, bg=BG_COLOR, 
              font=("Segoe UI", 10, "bold")).pack(side="left", padx=20)
     
-    time_label = tk.Label(status_bar, text="", fg="white", bg="#1e293b", 
+    time_label = tk.Label(status_bar, text="", fg=FG_COLOR, bg=BG_COLOR, 
                           font=("Segoe UI", 10, "bold"))
     time_label.pack(side="right", padx=20)
     
@@ -867,9 +867,9 @@ def status_screen(app, title, message, fg="#38bdf8", delay=0, on_done=None):
     app.clear()
     frame = _center_frame(app)
     
-    tk.Label(frame, text=title, fg=fg, bg="#0f172a", font=("Segoe UI", 24, "bold")).pack(pady=(0, 10))
+    tk.Label(frame, text=title, fg=fg, bg=BG_COLOR, font=("Segoe UI", 24, "bold")).pack(pady=(0, 10))
     
-    tk.Label(frame, text=message, fg="white", bg="#0f172a", font=("Segoe UI", 14), 
+    tk.Label(frame, text=message, fg=FG_COLOR, bg=BG_COLOR, font=("Segoe UI", 14), 
              justify="center", wraplength=600).pack(pady=10)
     
     app.root.update()

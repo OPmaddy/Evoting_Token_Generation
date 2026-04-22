@@ -1,19 +1,19 @@
 
 # ui/styles.py
 
-# Standard Light Theme
-BG_COLOR = "#F4F6F9"       # Very light slightly cool gray, standard app background
-FG_COLOR = "#333333"       # Dark gray for primary text
-FG_SECONDARY = "#555555"   # Medium gray for secondary text
+# Premium Dark Theme
+BG_COLOR = "#0f172a"       # Deep Slate Blue
+FG_COLOR = "#f8fafc"       # Ghost White
+FG_SECONDARY = "#94a3b8"   # Slate Gray for secondary text
 
 # Accents
-ACCENT_COLOR = "#0056b3"   # Standard corporate blue
-SUCCESS_COLOR = "#008000"  # Standard dark green
-ERROR_COLOR = "#c00000"    # Dark red
-WARNING_COLOR = "#856404"  # Dark yellow/brown for visibility on light bg
-WARNING_BG = "#fff3cd"     # Light yellow message box bg if needed
+ACCENT_COLOR = "#38bdf8"   # Sky Blue
+SUCCESS_COLOR = "#22c55e"  # Emerald Green
+ERROR_COLOR = "#ef4444"    # Rose Red
+WARNING_COLOR = "#f59e0b"  # Amber
 
-FONT_FAMILY = "Segoe UI"   # Standard Windows font, fallback to Helvetica handled by tk usually or specific
+# Font Config
+FONT_FAMILY = "Segoe UI"
 FONT_LARGE = (FONT_FAMILY, 32, "bold")
 FONT_MED = (FONT_FAMILY, 22)
 FONT_SMALL = (FONT_FAMILY, 14)

@@ -303,7 +303,7 @@ class VoterCollection:
         )
         return self._serialize(doc)
 
-    def regenerate_token(self, entry_number: str, device_id: str) -> dict | None:
+    def regenerate_token(self, entry_number: str, device_id: str, allowed_booths: list[int]) -> dict | None:
         """
         Force a voter into a requested state regardless of current status.
         Used by admins to unlock a stuck voter (stale lock, hardware failure, etc.).
@@ -313,20 +313,25 @@ class VoterCollection:
         existing = self.collection.find_one(
             {"entry_number": {"$regex": f"^{entry_number}$", "$options": "i"}}
         )
-        if existing:
-            log_path = os.path.join(os.path.dirname(__file__), "regeneration_audit.log")
-            log_line = (
-                f"[{datetime.now(timezone.utc).isoformat()}] REGENERATE TRIGGERED FOR {entry_number} "
-                f"| Old Status: {existing.get('status')} "
-                f"| Old Device: {existing.get('device_id')} "
-                f"| Old Token ID: {existing.get('token_id')} "
-                f"| Old Requested At: {existing.get('requested_at')} "
-                f"| Old Generated At: {existing.get('generated_at')}\n"
-            )
-            with open(log_path, "a") as f:
-                f.write(log_line)
+        if not existing:
+            return None
 
+        log_path = os.path.join(os.path.dirname(__file__), "regeneration_audit.log")
+        log_line = (
+            f"[{datetime.now(timezone.utc).isoformat()}] REGENERATE TRIGGERED FOR {entry_number} "
+            f"| Old Status: {existing.get('status')} "
+            f"| Old Device: {existing.get('device_id')} "
+            f"| Old Token ID: {existing.get('token_id')} "
+            f"| Old Requested At: {existing.get('requested_at')} "
+            f"| Old Generated At: {existing.get('generated_at')}\n"
+        )
+        with open(log_path, "a") as f:
+            f.write(log_line)
+
+        # Re-allot a booth for the new attempt
+        booth = self.allot_booth(allowed_booths, entry_number)
         now = datetime.now(timezone.utc).isoformat()
+        
         doc = self.collection.find_one_and_update(
             {
                 "entry_number": {"$regex": f"^{entry_number}$", "$options": "i"}
@@ -336,6 +341,8 @@ class VoterCollection:
                     "status": f"requested_by_device_{device_id}",
                     "device_id": device_id,
                     "requested_at": now,
+                    "booth_number": str(booth),
+                    "booth_allotted_at": now,
                     "is_regenerated": True
                 }
             },

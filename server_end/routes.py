@@ -306,11 +306,12 @@ def regenerate_token(entry_number: str):
     if not device_id:
         return jsonify({"error": "device_id is required"}), 400
 
-    existing = voters.get_voter(entry_number)
-    if existing is None:
-        return jsonify({"error": "Voter not found"}), 404
+    # Look up allowed booths for this device
+    allowed_booths = manager.get_bmd_mapping().get(str(device_id), [])
+    if not allowed_booths:
+        return jsonify({"error": f"No booths configured for device {device_id}"}), 400
 
-    result = voters.regenerate_token(entry_number, str(device_id))
+    result = voters.regenerate_token(entry_number, str(device_id), allowed_booths)
     if result is None:
         return jsonify({"error": "Failed to regenerate token"}), 500
 

@@ -264,6 +264,19 @@ class VoterCollection:
             },
             return_document=ReturnDocument.AFTER,
         )
+        
+        if doc:
+            # Central log of issuance (who got what)
+            audit_log_path = os.path.join(os.path.dirname(__file__), "issuance_audit.log")
+            with log_lock:
+                try:
+                    with open(audit_log_path, "a", encoding="utf-8") as f:
+                        is_regen = doc.get("is_regenerated", False)
+                        log_line = f"[{now}] ISSUED: voter={entry_number} device={device_id} token={token_id} booth={booth_number} regen={is_regen}\n"
+                        f.write(log_line)
+                except Exception as exc:
+                    print(f"[audit_log] {exc}")
+
         return self._serialize(doc)
 
     def cancel_token(self, entry_number: str, device_id: str) -> dict | None:

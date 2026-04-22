@@ -634,21 +634,24 @@ def download_master_report():
                 v.get("is_regenerated", False)
             ])
     
-    # 2. Regeneration Logs (from the audit file if it exists)
-    regen_log_content = ""
-    regen_log_path = os.path.join(os.path.dirname(__file__), "regeneration_audit.log")
-    if os.path.exists(regen_log_path):
-        with open(regen_log_path, "r") as f:
-            regen_log_content = f.read()
+    # 2. Central Audit Logs
+    audit_files = {
+        "regeneration_audit.log": "regeneration_history.log",
+        "issuance_audit.log": "issuance_history.log",
+        "logs/booth_allotment.log": "booth_allotment_history.log"
+    }
 
     # Create ZIP in memory
     memory_file = io.BytesIO()
     with zipfile.ZipFile(memory_file, 'w') as zf:
         # Master CSV
         zf.writestr("master_audit_report.csv", output.getvalue())
-        # Regeneration log
-        if regen_log_content:
-            zf.writestr("regeneration_history.log", regen_log_content)
+        
+        # Add Central Audit Logs
+        for rel_path, arc_name in audit_files.items():
+            abs_path = os.path.join(os.path.dirname(__file__), rel_path)
+            if os.path.exists(abs_path):
+                zf.write(abs_path, arcname=arc_name)
         
         # Also include all device local logs if they were uploaded
         logs_dir = os.path.join(os.path.dirname(__file__), "device_logs")

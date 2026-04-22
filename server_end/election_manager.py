@@ -309,12 +309,21 @@ class ElectionManager:
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             zf.write(report_path, arcname="voter_report.json")
             
-            # Archive Regeneration Audit Log if it exists
-            audit_log_path = os.path.join(self.base_dir, "regeneration_audit.log")
-            if os.path.exists(audit_log_path):
-                zf.write(audit_log_path, arcname="regeneration_audit.log")
-                # Once archived safely, we can delete the active one to start fresh for the next election
-                os.remove(audit_log_path)
+            # Archive Central Audit Logs
+            audit_files = {
+                "regeneration_audit.log": "regeneration_audit.log",
+                "issuance_audit.log": "issuance_audit.log",
+                "logs/booth_allotment.log": "booth_allotment.log"
+            }
+            for rel_path, arc_name in audit_files.items():
+                abs_log = os.path.join(self.base_dir, rel_path)
+                if os.path.exists(abs_log):
+                    zf.write(abs_log, arcname=arc_name)
+                    # Once archived safely, we can delete the active one to start fresh for the next election
+                    try:
+                        os.remove(abs_log)
+                    except:
+                        pass
             
             # Find all uploaded logs (which could be .zip or .log based on extraction state)
             for file_ext in ["*.log", "*.zip"]:

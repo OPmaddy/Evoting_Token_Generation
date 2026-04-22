@@ -26,6 +26,17 @@ def check_wifi(app):
         pass
     return False, None
 
+def reconnect_wifi_nmcli():
+    """Trigger a NetworkManager-level reconnect (toggle networking)."""
+    try:
+        # Toggle networking off then on to force a fresh scan/autoconnect
+        subprocess.run(["sudo", "nmcli", "networking", "off"], capture_output=True, timeout=5)
+        time.sleep(1)
+        subprocess.run(["sudo", "nmcli", "networking", "on"], capture_output=True, timeout=5)
+        return True, "Reconnecting..."
+    except Exception as e:
+        return False, str(e)
+
 def check_ntp_sync(app):
     """Checks if system time is synchronized via NTP."""
     try:

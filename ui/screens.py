@@ -147,31 +147,51 @@ def entry_number_screen(app, mock_rfid=True):
         threading.Thread(target=rfid_poll, daemon=True).start()
 
     # --- Status Bar (WiFi & Time) ---
+    from logic.boot_checks import check_wifi
     import datetime
+    
     status_bar = tk.Frame(app.container, bg=BG_COLOR, height=35)
     status_bar.pack(side="bottom", fill="x")
     
-    wifi_ssid = getattr(app, 'wifi_ssid', None)
-    wifi_text = f"📶 {wifi_ssid}" if wifi_ssid else "📶 ✗ Disconnected"
-    wifi_color = SUCCESS_COLOR if wifi_ssid else ERROR_COLOR
-    
-    tk.Label(status_bar, text=wifi_text, fg=wifi_color, bg=BG_COLOR, 
-             font=("Segoe UI", 10, "bold")).pack(side="left", padx=20)
+    wifi_label = tk.Label(status_bar, text="📶 Checking...", fg=FG_SECONDARY, bg=BG_COLOR,
+                          font=("Segoe UI", 10, "bold"))
+    wifi_label.pack(side="left", padx=20)
     
     time_label = tk.Label(status_bar, text="", fg=FG_COLOR, bg=BG_COLOR, 
                           font=("Segoe UI", 10, "bold"))
     time_label.pack(side="right", padx=20)
     
-    def update_time():
-        if not app.exit_requested and time_label.winfo_exists():
-            now = datetime.datetime.now().strftime("%H:%M")
-            try:
-                time_label.config(text=now)
-                app.root.after(30000, update_time)
-            except tk.TclError:
-                pass # Widget destroyed
+    def periodic_monitor():
+        """Periodic background task to update status and enforce time limits."""
+        if app.exit_requested or not status_bar.winfo_exists():
+            return
+
+        # 1. Update Clock
+        now_dt = datetime.datetime.now()
+        time_label.config(text=now_dt.strftime("%H:%M"))
+
+        # 2. Check & Update WiFi
+        ok, ssid = check_wifi(app)
+        if ok:
+            wifi_label.config(text=f"📶 {ssid}", fg=SUCCESS_COLOR)
+            app.wifi_ssid = ssid
+        else:
+            wifi_label.config(text="📶 ✗ Disconnected", fg=ERROR_COLOR)
+            app.wifi_ssid = None
+            # NetworkManager (nmcli) should handle autoconnect in background
+
+        # 3. Enforce Election End Time
+        if hasattr(app, 'election_end_time') and app.election_end_time:
+            # naive comparison
+            if now_dt.replace(tzinfo=None) > app.election_end_time:
+                result["value"] = "ELECTION_ENDED"
+                return
+
+        # Reschedule for 1 minute (60,000 ms)
+        app.root.after(60000, periodic_monitor)
     
-    update_time()
+    # Trigger first run immediately
+    periodic_monitor()
 
     # Wait until value entered or exit
     while result["value"] is None and not app.exit_requested:
@@ -531,11 +551,13 @@ def admin_dashboard_screen(app):
     def on_regenerate(): result["action"] = "REGENERATE"
     def on_reinit(): result["action"] = "REINIT_ELECTIONS"
     def on_fw_update(): result["action"] = "FIRMWARE_UPDATE"
+    def on_wifi_setup(): result["action"] = "WIFI_SETUP"
     def on_reset_pwd(): result["action"] = "RESET_PASSWORD"
     def on_exit(): result["action"] = "EXIT"
 
     _styled_button(btn_frame, "RE-INITIALIZE ELECTIONS", on_reinit, bg=ERROR_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "FIRMWARE UPDATE", on_fw_update, bg=WARNING_COLOR).pack(pady=5, fill="x")
+    _styled_button(btn_frame, "WIFI CONNECTION", on_wifi_setup, bg=ACCENT_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "CUSTOM READER", lambda: result.update({"action": "CUSTOM_READER"}), bg=ACCENT_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "REGENERATE TOKEN", on_regenerate, bg=WARNING_COLOR).pack(pady=5, fill="x")
     _styled_button(btn_frame, "RESET PASSWORD", on_reset_pwd, bg=FG_SECONDARY).pack(pady=5, fill="x")
@@ -878,3 +900,70 @@ def status_screen(app, title, message, fg=ACCENT_COLOR, delay=0, on_done=None):
         app.root.after(delay, on_done if on_done else lambda: None)
     elif on_done:
         _styled_button(frame, "CONTINUE", on_done).pack(pady=20)
+
+
+# ---------------- WIFI SETUP SCREEN ---------------- #
+
+def wifi_setup_screen(app):
+    app.clear()
+    from logic.boot_checks import check_wifi, reconnect_wifi_nmcli
+    
+    frame = _center_frame(app)
+    
+    tk.Label(frame, text="WIFI CONNECTION",
+             fg=ACCENT_COLOR, bg=BG_COLOR, font=("Segoe UI", 24, "bold")).pack(pady=(0, 10))
+             
+    status_label = tk.Label(frame, text="Checking status...",
+                           fg=FG_COLOR, bg=BG_COLOR, font=("Segoe UI", 14))
+    status_label.pack(pady=10)
+    
+    info_label = tk.Label(frame, text="",
+                         fg=FG_SECONDARY, bg=BG_COLOR, font=("Segoe UI", 12))
+    info_label.pack(pady=5)
+    
+    def refresh_status():
+        ok, ssid = check_wifi(app)
+        if ok:
+            status_label.config(text=f"CONNECTED", fg=SUCCESS_COLOR)
+            info_label.config(text=f"SSID: {ssid}")
+        else:
+            status_label.config(text="DISCONNECTED", fg=ERROR_COLOR)
+            info_label.config(text="No active WiFi connection found.")
+            
+    refresh_status()
+    
+    def on_reconnect():
+        status_label.config(text="RECONNECTING...", fg=WARNING_COLOR)
+        info_label.config(text="Resetting NetworkManager stack...")
+        app.root.update()
+        
+        success, msg = reconnect_wifi_nmcli()
+        if success:
+            # Wait a bit for NM to actually bring things up
+            import time
+            start = time.time()
+            # Dynamic check loop for 8 seconds
+            for _ in range(16):
+                ok, ssid = check_wifi(app)
+                if ok: break
+                app.root.update()
+                time.sleep(0.5)
+            refresh_status()
+        else:
+            status_label.config(text="RECONNECT FAILED", fg=ERROR_COLOR)
+            info_label.config(text=msg)
+
+    btn_frame = tk.Frame(frame, bg=BG_COLOR)
+    btn_frame.pack(pady=20)
+    
+    _styled_button(btn_frame, "TRY RECONNECTING", on_reconnect).pack(pady=5, fill="x")
+    
+    exit_flag = [False]
+    def on_back(): exit_flag[0] = True
+    
+    _styled_button(btn_frame, "BACK TO MENU", on_back, bg=FG_SECONDARY).pack(pady=5, fill="x")
+    
+    import time
+    while not exit_flag[0] and not app.exit_requested:
+        app.root.update()
+        time.sleep(0.05)

@@ -375,6 +375,10 @@ def main():
             entry = regenerate_entry
         else:
             entry = entry_number_screen(app, mock_rfid=MOCK_RFID)
+            if entry == "ELECTION_ENDED":
+                # Restart flow to trigger time_window_ended_screen
+                app.root.after(10, flow)
+                return
             if not entry:
                 app.root.after(10, flow)
                 return
@@ -410,6 +414,9 @@ def main():
                             except Exception as e:
                                 status_screen(app, "UPDATE FAILED", str(e), fg="red", delay=3000, on_done=flow)
                             return
+                    elif action == "WIFI_SETUP":
+                        from ui.screens import wifi_setup_screen
+                        wifi_setup_screen(app)
                     elif action == "RESET_PASSWORD":
                         old, new = reset_password_screen(app)
                         if old == admin_pwd and new:
